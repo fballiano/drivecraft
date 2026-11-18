@@ -587,14 +587,18 @@ mod preview {
         app
     }
 
-    fn shoot(name: &str, mut app: App, dark: bool) {
+    fn shoot(name: &str, app: App, dark: bool) {
+        shoot_sized(name, app, dark, 1080.0);
+    }
+
+    fn shoot_sized(name: &str, mut app: App, dark: bool, width: f32) {
         app.appearance = if dark {
             Appearance::Dark
         } else {
             Appearance::Light
         };
         let mut harness = Harness::builder()
-            .with_size(egui::vec2(1080.0, 720.0))
+            .with_size(egui::vec2(width, 720.0))
             .with_pixels_per_point(2.0)
             .build_ui_state(
                 move |ui, (app, ready): &mut (App, bool)| {
@@ -643,6 +647,14 @@ mod preview {
                 };
                 shoot(name, first, dark);
             }
+            // The narrowest window: text must wrap, never run under buttons.
+            let mut narrow = demo_app(Page::Folders);
+            if let Some(s) = &mut narrow.settings {
+                s.awaiting_selection = true;
+            }
+            shoot_sized("first-sync-folders-narrow", narrow, dark, 780.0);
+            shoot_sized("overview-narrow", demo_app(Page::Overview), dark, 780.0);
+            shoot_sized("settings-narrow", demo_app(Page::Settings), dark, 780.0);
             shoot("activity", demo_app(Page::Activity), dark);
             shoot("settings", demo_app(Page::Settings), dark);
             let mut welcome = demo_app(Page::Overview);

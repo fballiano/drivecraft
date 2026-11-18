@@ -361,8 +361,10 @@ pub fn segmented(ui: &mut Ui, items: &[(&str, &str)], selected: usize) -> Option
 /// The title and subtitle of a page, with optional actions on the right.
 pub fn page_header(ui: &mut Ui, title: &str, subtitle: &str, actions: impl FnOnce(&mut Ui)) {
     let t = Tokens::of(ui);
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
+    text_and_actions(
+        ui,
+        egui::Align::Min,
+        |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             ui.label(RichText::new(title).font(semibold(22.0)).color(t.text));
             ui.label(
@@ -370,10 +372,58 @@ pub fn page_header(ui: &mut Ui, title: &str, subtitle: &str, actions: impl FnOnc
                     .font(regular(13.0))
                     .color(t.text_dim),
             );
-        });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), actions);
-    });
+        },
+        |ui, ()| actions(ui),
+    );
     ui.add_space(14.0);
+}
+
+/// A row with text on the left and actions (buttons) on the right. The text
+/// gets only the width that the actions leave, so it wraps or truncates and
+/// never runs under them. The actions get a rectangle with the height of the
+/// text; `align` places them in it (`Center`: centered on the text, `Min`: at
+/// the top, for example next to a title).
+///
+/// The text comes first, so that an action can use what the text returns
+/// (for example the id of a label). The width of the actions comes from the
+/// previous frame; when it changes, egui draws one more frame.
+pub fn text_and_actions<R>(
+    ui: &mut Ui,
+    align: egui::Align,
+    text: impl FnOnce(&mut Ui) -> R,
+    actions: impl FnOnce(&mut Ui, R),
+) {
+    const GAP: f32 = 16.0;
+    let id = ui.auto_id_with("actions-width");
+    let reserved: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
+    let right = ui.available_rect_before_wrap().right();
+    let width = (ui.available_width() - reserved - GAP).max(80.0);
+    let text = ui.allocate_ui_with_layout(
+        vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            text(ui)
+        },
+    );
+    let text_rect = text.response.rect;
+    let area = egui::Rect::from_min_max(
+        pos2(text_rect.right() + GAP, text_rect.top()),
+        pos2(right, text_rect.bottom()),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(area)
+            .layout(egui::Layout::right_to_left(align)),
+    );
+    actions(&mut child, text.inner);
+    let used = child.min_rect();
+    // The actions can be taller than the text: keep the next widget below.
+    ui.advance_cursor_after_rect(text_rect.union(used));
+    if (used.width() - reserved).abs() > 0.5 {
+        ui.ctx().data_mut(|d| d.insert_temp(id, used.width()));
+        ui.ctx().request_repaint();
+    }
 }
 
 /// A label for a setting, with a description under it.

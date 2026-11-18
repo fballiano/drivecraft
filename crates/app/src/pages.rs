@@ -136,7 +136,8 @@ fn overview(app: &mut App, ui: &mut Ui) {
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // The status card.
         card(ui, |ui| {
-            ui.horizontal(|ui| {
+            // Top-aligned: the text block starts at the top of the icon.
+            ui.horizontal_top(|ui| {
                 let (icon, fg, bg, title, subtitle) = match &status {
                     Status::Starting => (
                         icons::CLOUD,
@@ -190,33 +191,38 @@ fn overview(app: &mut App, ui: &mut Ui) {
                     widgets::icon_circle(ui, icon, 56.0, fg, bg);
                 }
                 ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    ui.add_space(6.0);
-                    ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.label(RichText::new(title).font(semibold(18.0)).color(t.text));
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(subtitle)
-                                .font(regular(13.0))
-                                .color(t.text_dim),
-                        )
-                        .wrap(),
-                    );
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if status == Status::ChooseFolders {
-                        if primary(ui, true, &format!("{}  Choose folders", icons::FOLDER))
-                            .clicked()
-                        {
-                            app.page = Page::Folders;
+                widgets::text_and_actions(
+                    ui,
+                    Align::Center,
+                    |ui| {
+                        ui.add_space(6.0);
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        ui.label(RichText::new(title).font(semibold(18.0)).color(t.text));
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(subtitle)
+                                    .font(regular(13.0))
+                                    .color(t.text_dim),
+                            )
+                            .wrap(),
+                        );
+                    },
+                    |ui, ()| {
+                        if status == Status::ChooseFolders {
+                            if primary(ui, true, &format!("{}  Choose folders", icons::FOLDER))
+                                .clicked()
+                            {
+                                app.page = Page::Folders;
+                            }
+                            return;
                         }
-                        return;
-                    }
-                    let syncing = matches!(status, Status::Syncing { .. });
-                    if primary(ui, !syncing, &format!("{}  Sync now", icons::REFRESH)).clicked() {
-                        app.engine.send(Command::SyncNow);
-                    }
-                });
+                        let syncing = matches!(status, Status::Syncing { .. });
+                        if primary(ui, !syncing, &format!("{}  Sync now", icons::REFRESH)).clicked()
+                        {
+                            app.engine.send(Command::SyncNow);
+                        }
+                    },
+                );
             });
             if let Status::Syncing { fraction, .. } = &status {
                 ui.add_space(10.0);
@@ -329,18 +335,24 @@ fn new_folders_card(app: &mut App, ui: &mut Ui) {
         ui.add_space(6.0);
         let n = app.new_folders.len();
         for (i, name) in app.new_folders.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.set_min_height(40.0);
-                ui.label(
-                    RichText::new(icons::FOLDER)
-                        .font(icon_font(16.0))
-                        .color(t.icon),
-                );
-                ui.add(
-                    egui::Label::new(RichText::new(name).font(medium(13.5)).color(t.text))
-                        .truncate(),
-                );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            widgets::text_and_actions(
+                ui,
+                Align::Center,
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(40.0);
+                        ui.label(
+                            RichText::new(icons::FOLDER)
+                                .font(icon_font(16.0))
+                                .color(t.icon),
+                        );
+                        ui.add(
+                            egui::Label::new(RichText::new(name).font(medium(13.5)).color(t.text))
+                                .truncate(),
+                        );
+                    });
+                },
+                |ui, ()| {
                     if primary(ui, true, &format!("{}  Sync", icons::UPLOAD))
                         .on_hover_text("Upload this folder to OneDrive and keep it in sync")
                         .clicked()
@@ -356,8 +368,8 @@ fn new_folders_card(app: &mut App, ui: &mut Ui) {
                     {
                         commands.push(Command::KeepLocalOnly(name.clone()));
                     }
-                });
-            });
+                },
+            );
             if i + 1 < n {
                 widgets::separator(ui);
             }
@@ -482,7 +494,7 @@ fn folders(app: &mut App, ui: &mut Ui) {
         "Folders",
         "Turn on the folders that sync to this computer. Folders that are off stay only on OneDrive.",
         |ui| {
-            if widgets::icon_button(ui, icons::REFRESH, "Reload the folders").clicked() {
+            if widgets::icon_button(ui, icons::LIST_RESTART, "Reload the folder list").clicked() {
                 app.tree.clear();
             }
         },
@@ -521,8 +533,10 @@ fn folders(app: &mut App, ui: &mut Ui) {
 /// OneDrive, then starts the first sync. Nothing downloads before that.
 fn first_sync_card(app: &mut App, ui: &mut Ui) {
     card(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
+        widgets::text_and_actions(
+            ui,
+            Align::Center,
+            |ui| {
                 card_title(
                     ui,
                     icons::FOLDER_CHECK,
@@ -532,14 +546,14 @@ fn first_sync_card(app: &mut App, ui: &mut Ui) {
                          Nothing downloads until you start the first sync.",
                     ),
                 );
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            },
+            |ui, ()| {
                 if primary(ui, true, &format!("{}  Start sync", icons::REFRESH)).clicked() {
                     app.engine.send(Command::ConfirmSelection);
                     app.page = Page::Overview;
                 }
-            });
-        });
+            },
+        );
     });
 }
 
@@ -778,17 +792,18 @@ fn settings(app: &mut App, ui: &mut Ui) {
         card(ui, |ui| {
             card_title(ui, icons::FOLDER, "OneDrive folder", None);
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.set_min_height(44.0);
-                ui.vertical(|ui| {
+            widgets::text_and_actions(
+                ui,
+                Align::Center,
+                |ui| {
                     widgets::setting_label(
                         ui,
                         "Location",
                         "If you change it, the next sync fills the new folder. The old folder stays as it is.",
                     );
                     path_label(ui, &s.local_dir);
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                },
+                |ui, ()| {
                     let busy = app.syncing.is_some();
                     if secondary(ui, !busy, "Change…").clicked()
                         && let Some(dir) = rfd::FileDialog::new()
@@ -799,8 +814,8 @@ fn settings(app: &mut App, ui: &mut Ui) {
                         prefs.local_dir = dir;
                         app.engine.send(Command::UpdatePrefs(prefs));
                     }
-                });
-            });
+                },
+            );
             for name in &s.local_only {
                 widgets::separator(ui);
                 setting_row(
@@ -954,13 +969,15 @@ fn settings(app: &mut App, ui: &mut Ui) {
 /// A settings row: the title and description on the left, controls on the right.
 /// `controls` gets the id of the title label, to name its control for screen readers.
 fn setting_row(ui: &mut Ui, title: &str, description: &str, controls: impl FnOnce(&mut Ui, Id)) {
-    ui.horizontal(|ui| {
-        ui.set_min_height(44.0);
-        let label = widgets::setting_label(ui, title, description);
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            controls(ui, label)
-        });
-    });
+    widgets::text_and_actions(
+        ui,
+        Align::Center,
+        |ui| {
+            ui.set_min_height(44.0);
+            widgets::setting_label(ui, title, description)
+        },
+        controls,
+    );
 }
 
 fn unique_account_name(existing: &[String]) -> String {
