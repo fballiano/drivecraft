@@ -33,6 +33,13 @@ pub struct Settings {
     /// DriveCraft does not sync before that, so it downloads only the
     /// folders that the user wants.
     pub awaiting_selection: bool,
+    /// Download files that the provider blocks as infected with a virus
+    /// (OneDrive `av_override`, Google Drive `acknowledge_abuse`).
+    pub download_blocked_files: bool,
+    /// The files that the provider blocked. While `download_blocked_files`
+    /// is off, the filter rules exclude them, so a sync does not stop at
+    /// them again.
+    pub blocked_files: BTreeSet<String>,
 }
 
 impl Default for Settings {
@@ -49,6 +56,8 @@ impl Default for Settings {
             local_only: BTreeSet::new(),
             needs_resync: true,
             awaiting_selection: false,
+            download_blocked_files: false,
+            blocked_files: BTreeSet::new(),
         }
     }
 }
@@ -322,6 +331,15 @@ impl Settings {
         for junk in crate::snapshot::JUNK {
             out.push_str(&format!("- {junk}\n"));
         }
+        if !self.download_blocked_files {
+            for path in &self.blocked_files {
+                let mut forms = vec![nfc(path), nfd(path)];
+                forms.dedup();
+                for form in forms {
+                    out.push_str(&format!("- /{}\n", escape_glob(&form)));
+                }
+            }
+        }
         out.push_str("+ /*\n");
         // A name can be NFC on one side and NFD on the other, so a name
         // that has two forms gets a rule for each form.
@@ -529,6 +547,21 @@ mod tests {
         let rules = s.filter_rules();
         assert!(rules.contains("+ /Caf\u{e9}/**\n"));
         assert!(rules.contains("+ /Caf\u{65}\u{301}/**\n"));
+    }
+
+    #[test]
+    fn blocked_files_are_excluded_until_the_switch_is_on() {
+        let mut s = settings(&[]);
+        s.blocked_files = ["Mail/backup [1].tar.gz".to_string()].into();
+        let rules = s.filter_rules();
+        let exclude = "- /Mail/backup \\[1\\].tar.gz\n";
+        assert!(rules.contains(exclude), "{rules}");
+        assert!(
+            rules.find(exclude) < rules.find("+ /*"),
+            "the exclusion comes first"
+        );
+        s.download_blocked_files = true;
+        assert!(!s.filter_rules().contains("backup"));
     }
 
     #[test]

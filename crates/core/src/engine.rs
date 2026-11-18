@@ -56,6 +56,7 @@ pub enum Command {
 pub struct Prefs {
     pub local_dir: PathBuf,
     pub sync_interval_minutes: u64,
+    pub download_blocked_files: bool,
 }
 
 impl Prefs {
@@ -63,6 +64,7 @@ impl Prefs {
         Prefs {
             local_dir: s.local_dir.clone(),
             sync_interval_minutes: s.sync_interval_minutes,
+            download_blocked_files: s.download_blocked_files,
         }
     }
 }
@@ -216,6 +218,11 @@ struct Engine {
     live_seen: HashSet<String>,
     live_paths: HashSet<String>,
     live_errors: HashSet<String>,
+    /// The files that this sync found blocked for the first time.
+    newly_blocked: usize,
+    /// True when rclone must restart with new options (`rclone_env`),
+    /// as soon as no sync runs.
+    restart_rclone: bool,
     last_sync: Option<Instant>,
     /// False after a failed sync. Then pending changes wait for the interval.
     last_ok: bool,
@@ -240,6 +247,7 @@ impl Engine {
             &config,
             &Settings::log_file(),
             &Settings::session_file(),
+            &rclone_env(&settings),
         )?;
         let version = rc.version()?;
         let last_files = Snapshot::load(&Settings::snapshot_file());
@@ -267,6 +275,8 @@ impl Engine {
             live_seen: HashSet::new(),
             live_paths: HashSet::new(),
             live_errors: HashSet::new(),
+            newly_blocked: 0,
+            restart_rclone: false,
             last_sync: None,
             last_ok: true,
             new_folders: None,
@@ -460,8 +470,36 @@ impl Engine {
             ));
         }
         self.settings.sync_interval_minutes = p.sync_interval_minutes.max(1);
+        if self.settings.download_blocked_files != p.download_blocked_files {
+            // The filter rules change too, so the next sync is a resync.
+            // Turned on, it downloads the blocked files.
+            self.settings.download_blocked_files = p.download_blocked_files;
+            self.restart_rclone = true;
+        }
         self.save();
         Ok(())
+    }
+
+    /// Starts rclone again with the options of the settings. Only call it
+    /// while no sync runs.
+    fn restart_rclone(&mut self) {
+        self.restart_rclone = false;
+        self.rc.stop();
+        match Rclone::start(
+            &self.binary,
+            &Settings::rclone_config_file(),
+            &Settings::log_file(),
+            &Settings::session_file(),
+            &rclone_env(&self.settings),
+        ) {
+            Ok(rc) => {
+                self.rc = rc;
+                if self.settings.remote.is_some() {
+                    self.start_sync();
+                }
+            }
+            Err(e) => self.emit.send(Event::Fatal(format!("{e:#}"))),
+        }
     }
 
     fn refresh_about(&mut self) {
@@ -510,6 +548,10 @@ impl Engine {
             self.poll_job();
             return;
         }
+        if self.restart_rclone {
+            self.restart_rclone();
+            return;
+        }
         if self.last_folder_check.elapsed() >= Duration::from_secs(5) {
             self.check_local_folders();
         }
@@ -547,6 +589,7 @@ impl Engine {
         self.live_seen.clear();
         self.live_paths.clear();
         self.live_errors.clear();
+        self.newly_blocked = 0;
         if let Err(e) = self.start_bisync(phase) {
             self.last_sync = Some(Instant::now());
             self.finish(false, format!("{e:#}"));
@@ -653,6 +696,17 @@ impl Engine {
         self.last_sync = Some(Instant::now());
         if !status["success"].as_bool().unwrap_or(false) {
             self.files_before = None;
+            if self.newly_blocked > 0 {
+                // The filter rules exclude the new blocked files now. Their
+                // number is finite, so this cannot repeat for ever.
+                self.log(
+                    "The sync stopped at files that OneDrive blocks. \
+                     DriveCraft starts it again and skips these files."
+                        .into(),
+                );
+                self.start_sync();
+                return;
+            }
             let err = status["error"].as_str().unwrap_or("unknown error");
             self.finish(false, format!("The sync failed: {err}"));
             return;
@@ -726,10 +780,32 @@ impl Engine {
         };
         let remote = self.remote_fs().unwrap_or_default();
         let live = live_transfers(&v, &remote, &mut self.live_seen);
+        let mut settings_changed = false;
         for (name, err) in live.errors {
-            if self.live_errors.insert(name.clone()) {
-                self.error(transfer_error_text(&name, &err));
+            if is_blocked_error(&err) {
+                // Reported once. Later syncs skip the file (filter rules).
+                if self.settings.blocked_files.insert(name.clone()) {
+                    self.newly_blocked += 1;
+                    settings_changed = true;
+                    self.log(format!(
+                        "OneDrive blocks \"{name}\": it marks the file as infected with a \
+                         virus. DriveCraft skips this file. To download blocked files, turn on \
+                         \"Download blocked files\" in Settings."
+                    ));
+                }
+            } else if self.live_errors.insert(name.clone()) {
+                self.error(format!("Cannot sync \"{name}\": {err}"));
             }
+        }
+        // A blocked file that downloads now (the switch is on) is not
+        // blocked any more.
+        for c in &live.changes {
+            if self.settings.blocked_files.remove(&c.path) {
+                settings_changed = true;
+            }
+        }
+        if settings_changed {
+            self.save();
         }
         let mut changes: Vec<FileChange> = live
             .changes
@@ -931,14 +1007,23 @@ fn live_transfers(v: &Value, remote_fs: &str, seen: &mut HashSet<String>) -> Liv
     out
 }
 
-fn transfer_error_text(name: &str, error: &str) -> String {
-    if error.contains("malwareDetected") {
-        format!(
-            "OneDrive marks \"{name}\" as infected with a virus, so DriveCraft does not \
-             download it. Check the file on the OneDrive website."
-        )
+/// True when the provider refuses a download because it marks the file as
+/// infected (OneDrive `malwareDetected`, Google Drive
+/// `cannotDownloadAbusiveFile`).
+fn is_blocked_error(error: &str) -> bool {
+    error.contains("malwareDetected") || error.contains("cannotDownloadAbusiveFile")
+}
+
+/// The rclone options that come from the settings, as environment
+/// variables. One switch covers each provider that can block files.
+fn rclone_env(settings: &Settings) -> Vec<(&'static str, &'static str)> {
+    if settings.download_blocked_files {
+        vec![
+            ("RCLONE_ONEDRIVE_AV_OVERRIDE", "true"),
+            ("RCLONE_DRIVE_ACKNOWLEDGE_ABUSE", "true"),
+        ]
     } else {
-        format!("Cannot sync \"{name}\": {error}")
+        Vec::new()
     }
 }
 
@@ -1019,7 +1104,8 @@ mod tests {
             ]
         );
         assert_eq!(live.errors.len(), 1);
-        assert!(transfer_error_text("bad.exe", &live.errors[0].1).contains("virus"));
+        assert!(is_blocked_error(&live.errors[0].1));
+        assert!(!is_blocked_error("HTTP error 500"));
         // The next poll returns the same entries: nothing is new.
         assert_eq!(
             live_transfers(&v, "onedrive:", &mut seen),

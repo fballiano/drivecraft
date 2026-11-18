@@ -534,6 +534,7 @@ mod preview {
         s.pinned = ["Documents".to_string(), "Photos/2026".to_string()].into();
         s.pending_pin = ["Projects".to_string()].into();
         s.local_only = ["Scratch".to_string()].into();
+        s.blocked_files = ["Mail/backup 1999.tar.gz".to_string()].into();
         s.needs_resync = false;
         app.settings = Some(s);
         app.form_interval = 10;

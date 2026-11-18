@@ -941,6 +941,34 @@ fn settings(app: &mut App, ui: &mut Ui) {
                     }
                 });
             }
+            widgets::separator(ui);
+            let mut description = String::from(
+                "OneDrive blocks files that it marks as infected with a virus. \
+                 Turn this on to download them anyway. Scan such files before you open them.",
+            );
+            match s.blocked_files.len() {
+                0 => {}
+                1 => description.push_str(" 1 file is blocked now."),
+                n => description.push_str(&format!(" {n} files are blocked now.")),
+            }
+            setting_row(ui, "Download blocked files", &description, |ui, _| {
+                let (rect, _) = ui.allocate_exact_size(vec2(34.0, 20.0), Sense::hover());
+                let on = s.download_blocked_files;
+                if widgets::toggle_at(
+                    ui,
+                    rect,
+                    Id::unique("download-blocked-files"),
+                    on,
+                    true,
+                    "Download blocked files",
+                )
+                .clicked()
+                {
+                    let mut prefs = Prefs::from_settings(&s);
+                    prefs.download_blocked_files = !on;
+                    app.engine.send(Command::UpdatePrefs(prefs));
+                }
+            });
         });
         ui.add_space(14.0);
 

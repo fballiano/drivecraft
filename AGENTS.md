@@ -39,6 +39,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 ## Gotchas
 
+- **Blocked files stop a bisync.** A provider can refuse a download (OneDrive `malwareDetected`, Google `cannotDownloadAbusiveFile`), and each later bisync stops at the same file. `report_transfers` records such files in `Settings::blocked_files`, and `filter_rules` excludes them; a sync that found new ones starts again. The switch `download_blocked_files` sets `RCLONE_ONEDRIVE_AV_OVERRIDE` and `RCLONE_DRIVE_ACKNOWLEDGE_ABUSE` (`rclone_env`), so a change restarts rclone between syncs.
 - **Bisync checks the filter file.** At each resync it stores the MD5 in `filters.txt.md5`; later it aborts ("must run --resync") if the rules differ. `start_bisync` compares the rules first and makes that sync a resync. Keep that check after the missing-folder check.
 - **rclone records no side for deletes.** Per-file activity comes from comparing local file lists (`snapshot.rs`): last sync against before this sync gives uploads; before against after gives downloads.
 - **Unicode forms:** macOS names can be NFD and OneDrive names NFC. `rclone check --files-from` reports such files as missing; confirm with `rclone hashsum quickxor` on both sides.

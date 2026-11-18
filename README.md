@@ -59,6 +59,8 @@ It works like the official client before "Files On-Demand", or like selective sy
 - DriveCraft syncs at an interval (10 minutes by default), and when you click **Sync now**.
 - **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted from OneDrive.
   DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list in `snapshot.json` in the settings folder.
+- OneDrive blocks the download of files that it marks as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
+  To download these files anyway, turn on **Settings > Sync > Download blocked files**. The same switch covers Google Drive, which blocks files in the same way. Scan such files before you open them.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
 
 DriveCraft refuses a folder that a different OneDrive app syncs, because two apps that sync the same folder can delete files:

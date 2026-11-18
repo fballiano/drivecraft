@@ -109,16 +109,21 @@ pub struct Rclone {
     child: Child,
     client: Client,
     session_file: PathBuf,
+    /// True after `stop`. Then `Drop` does nothing.
+    stopped: bool,
 }
 
 impl Rclone {
     /// Starts rclone with its own configuration file `config`, so that
     /// DriveCraft does not share accounts with the user's own rclone.
+    /// `env` sets extra rclone options, for example
+    /// `RCLONE_ONEDRIVE_AV_OVERRIDE`.
     pub fn start(
         binary: &Path,
         config: &Path,
         log_file: &Path,
         session_file: &Path,
+        env: &[(&str, &str)],
     ) -> Result<Self> {
         stop_previous(session_file);
 
@@ -134,6 +139,7 @@ impl Rclone {
             .arg("--log-level=INFO")
             .env("RCLONE_RC_USER", USER)
             .env("RCLONE_RC_PASS", &pass)
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -143,6 +149,7 @@ impl Rclone {
             child,
             client: Client::new(port, &pass, Duration::from_secs(300)),
             session_file: session_file.to_path_buf(),
+            stopped: false,
         };
 
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -179,8 +186,14 @@ impl Rclone {
     }
 }
 
-impl Drop for Rclone {
-    fn drop(&mut self) {
+impl Rclone {
+    /// Stops rclone and removes the session file. Before a restart, call
+    /// this first: the new rclone writes a new session file.
+    pub fn stop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        self.stopped = true;
         let _ = self.call("mount/unmountall", json!({}));
         let _ = self.call("core/quit", json!({}));
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -195,6 +208,12 @@ impl Drop for Rclone {
             let _ = self.child.wait();
         }
         let _ = fs::remove_file(&self.session_file);
+    }
+}
+
+impl Drop for Rclone {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
