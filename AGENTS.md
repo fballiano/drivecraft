@@ -15,13 +15,15 @@ Keep these unless the user changes them:
 - **No coexistence with the official client.** People replace it, so DriveCraft does not detect it at run time. It only refuses its folder and explains the change.
 - **Tray icon like OneDrive.** A click opens the normal window. Closing the window hides it to the tray.
 - **Dock icon on macOS only while the window is open** (`set_dock_icon` in `main.rs`, `NSApplication.setActivationPolicy`).
-- **The first sync waits for the folder selection.** After a sign-in, `Settings::awaiting_selection` blocks every sync until `Command::ConfirmSelection` (**Start sync** on Folders).
+- **The first sync waits for the folder selection.** After a sign-in, `Account::awaiting_selection` blocks every sync of that account until `Command::ConfirmSelection` (**Start sync** on its Folders tab).
+- **More accounts.** `Settings` holds the app-wide values and `accounts: Vec<Account>`. The account `id` is the rclone remote and never changes; `name` is for the UI. The sidebar lists the accounts; an account page has the tabs Folders and Account. Overview, Activity, and Settings cover all accounts. Only one sync runs at a time.
 - **Latest dependency versions.** Pin an older version only when a dependency forces it, and say why (for example, `objc2-app-kit` 0.3 matches eframe 0.37).
 
 ## Architecture
 
 - `crates/core` holds all sync logic. It has no UI code. The engine thread owns rclone and the settings; the UI sends `Command`s and receives `Event`s.
 - `crates/app` is a thin UI. A page reads state and sends commands; every rclone call goes through the engine.
+- Each command and event about one account carries its id. Per-account files are `filters-<id>.txt` (with `.md5`) and `snapshot-<id>.json`. `Settings::parse` turns the old one-account format into one account, and `rename_one_account_files` renames its files, so no resync is forced. Keep that migration.
 - The core talks to `rclone rcd` through the remote control API on 127.0.0.1, with a random password that goes through environment variables. A session file lets the next start stop an rclone that a crash left running.
 
 ## Safety rules
@@ -30,7 +32,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 - A **missing local folder** after a previous sync stops the sync (`start_bisync`). Recreating it empty makes bisync delete everything on OneDrive.
 - Before a folder is switched off, a **pre-sync** with the old selection runs; only then is the local copy deleted (`Phase::Pre`, `apply_pending`).
-- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the folders of other OneDrive clients (`other_clients.rs`), the home folder, the disk root, `~/DriveCraft` itself, and the settings folder.
+- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the folders of other OneDrive clients (`other_clients.rs`), the folders of the other accounts (same, inside, or around), the home folder, the disk root, `~/DriveCraft` itself, and the settings folder.
 - A resync uses `resyncMode: "newer"`. rclone's default (`path1`) lets an old local copy overwrite a newer file on OneDrive.
 - DriveCraft uses its own `rclone.conf` in the settings folder (`--config` on every rclone call), never the user's default rclone file.
 - A resync never deletes, so only a resync may create the local folder.
@@ -40,7 +42,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 ## Gotchas
 
 - **Blocked files stop a bisync.** A provider can refuse a download (OneDrive `malwareDetected`, Google `cannotDownloadAbusiveFile`), and each later bisync stops at the same file. `report_transfers` records such files in `Settings::blocked_files`, and `filter_rules` excludes them; a sync that found new ones starts again. The switch `download_blocked_files` sets `RCLONE_ONEDRIVE_AV_OVERRIDE` and `RCLONE_DRIVE_ACKNOWLEDGE_ABUSE` (`rclone_env`), so a change restarts rclone between syncs.
-- **Bisync checks the filter file.** At each resync it stores the MD5 in `filters.txt.md5`; later it aborts ("must run --resync") if the rules differ. `start_bisync` compares the rules first and makes that sync a resync. Keep that check after the missing-folder check.
+- **Bisync checks the filter file.** At each resync it stores the MD5 in `filters-<id>.txt.md5`; later it aborts ("must run --resync") if the rules differ. `start_bisync` compares the rules first and makes that sync a resync. Keep that check after the missing-folder check.
 - **rclone records no side for deletes.** Per-file activity comes from comparing local file lists (`snapshot.rs`): last sync against before this sync gives uploads; before against after gives downloads.
 - **Unicode forms:** macOS names can be NFD and OneDrive names NFC. `rclone check --files-from` reports such files as missing; confirm with `rclone hashsum quickxor` on both sides.
 - **Cargo build layout:** `OUT_DIR` sits deeper than `target/<profile>/build/<pkg>-<hash>/out`, so the build script passes the rclone path as `DRIVECRAFT_BUILD_RCLONE` and copies nothing next to the binary.

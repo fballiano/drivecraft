@@ -8,5 +8,5 @@ pub mod settings;
 pub mod snapshot;
 
 pub use engine::{Command, EngineHandle, Event, Notify, Prefs, Transfer, spawn};
-pub use settings::{KeepState, Settings};
+pub use settings::{Account, KeepState, Settings, provider_label};
 pub use snapshot::{ChangeKind, FileChange};

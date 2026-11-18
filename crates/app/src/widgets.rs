@@ -260,6 +260,75 @@ pub fn icon_circle(ui: &mut Ui, icon: &str, diameter: f32, fg: Color32, bg: Colo
 }
 
 /// A thin progress bar. `None` shows a moving bar for unknown progress.
+/// A sidebar row for one account: a status dot, the name, and under them a
+/// small storage bar with "used of total".
+pub fn account_item(
+    ui: &mut Ui,
+    name: &str,
+    dot: Color32,
+    storage: Option<(u64, u64)>,
+    selected: bool,
+) -> Response {
+    let t = Tokens::of(ui);
+    let height = if storage.is_some() { 54.0 } else { 36.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, name));
+    let bg = if selected {
+        t.accent_soft
+    } else if resp.hovered() {
+        t.hover
+    } else {
+        Color32::TRANSPARENT
+    };
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(RADIUS), bg);
+    let line = if storage.is_some() {
+        rect.top() + 18.0
+    } else {
+        rect.center().y
+    };
+    p.circle_filled(pos2(rect.left() + 21.0, line), 4.0, dot);
+    let text_color = if selected { t.accent_text } else { t.text };
+    let left = rect.left() + 42.0;
+    p.with_clip_rect(rect.shrink(4.0)).text(
+        pos2(left, line),
+        Align2::LEFT_CENTER,
+        name,
+        medium(13.5),
+        text_color,
+    );
+    if let Some((used, total)) = storage {
+        let y = line + 19.0;
+        let label = p.layout_no_wrap(
+            format!(
+                "{} of {}",
+                crate::human_bytes(used),
+                crate::human_bytes(total)
+            ),
+            regular(11.0),
+            t.text_faint,
+        );
+        let label_x = rect.right() - 12.0 - label.size().x;
+        p.galley(pos2(label_x, y - label.size().y / 2.0), label, t.text_faint);
+        let bar = Rect::from_min_max(pos2(left, y - 2.0), pos2(label_x - 8.0, y + 2.0));
+        if bar.width() > 8.0 {
+            p.rect_filled(
+                bar,
+                CornerRadius::same(2),
+                if t.dark { t.field_border } else { t.pressed },
+            );
+            let f = if total > 0 {
+                (used as f32 / total as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let fill = Rect::from_min_size(bar.min, vec2(bar.width() * f, bar.height()));
+            p.rect_filled(fill, CornerRadius::same(2), t.accent);
+        }
+    }
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 pub fn progress(ui: &mut Ui, fraction: Option<f32>) {
     let t = Tokens::of(ui);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());

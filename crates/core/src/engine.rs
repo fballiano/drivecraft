@@ -1,9 +1,12 @@
 //! The engine runs on its own thread. It owns rclone and the settings.
 //! The UI sends `Command`s and receives `Event`s. The UI never calls rclone.
+//!
+//! Each account syncs on its own, but only one sync runs at a time: the
+//! accounts take turns.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -15,46 +18,66 @@ use serde_json::{Value, json};
 
 use crate::rclone::{Rclone, config_section, default_config_file, find_binary, write_private};
 use crate::settings::{
-    Settings, check_local_dir, filters_match_last_resync, is_safe_relative, nfc,
+    Account, Settings, check_local_dir, filters_match_last_resync, is_safe_relative,
+    new_account_dir, nfc, provider_label,
 };
 use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 
 #[derive(Debug)]
 pub enum Command {
     RefreshRemotes,
-    /// Runs `rclone config create <name> onedrive`. rclone opens the
-    /// Microsoft login page in the browser.
-    ConnectAccount {
-        name: String,
+    /// Signs in to a new account of `provider` (for example "onedrive").
+    /// rclone opens the login page in the browser.
+    AddAccount {
+        provider: String,
     },
-    SelectRemote(String),
+    /// Adds an account for a remote that the rclone file of DriveCraft has
+    /// already. See `Event::Remotes`.
+    UseRemote(String),
+    /// Signs out: removes the account and its rclone remote. The local
+    /// folder and its files stay on this computer.
+    RemoveAccount(String),
     UpdatePrefs(Prefs),
-    /// Lists the subfolders of a OneDrive folder. "" is the root.
-    ListDir(String),
+    /// Renames an account, or gives it a different local folder.
+    UpdateAccount {
+        account: String,
+        name: String,
+        local_dir: PathBuf,
+    },
+    /// Lists the subfolders of a folder of an account. "" is the root.
+    ListDir {
+        account: String,
+        path: String,
+    },
     SetKeep {
+        account: String,
         path: String,
         keep: bool,
     },
     /// Keeps a new top-level local folder only on this computer.
     /// See `Event::NewLocalFolders`.
-    KeepLocalOnly(String),
+    KeepLocalOnly {
+        account: String,
+        name: String,
+    },
+    /// Syncs all accounts now, one after the other.
     SyncNow,
-    /// Reads the used and total storage of the OneDrive account.
+    /// Reads the used and total storage of all accounts.
     RefreshAbout,
-    /// Makes the next sync a full resync. Use this after a sync error.
-    ForceResync,
-    /// The user confirmed the folder selection after a sign-in. The first
-    /// sync starts. See `Settings::awaiting_selection`.
-    ConfirmSelection,
+    /// Makes the next sync of an account a full resync. Use this after a
+    /// sync error.
+    ForceResync(String),
+    /// The user confirmed the folder selection of a new account. Its first
+    /// sync can start. See `Account::awaiting_selection`.
+    ConfirmSelection(String),
     Shutdown,
     #[doc(hidden)]
-    AccountResult(Result<String, String>),
+    AccountResult(Result<(String, String), String>),
 }
 
-/// The settings that the user edits in the settings form.
+/// The app-wide settings that the user edits in Settings.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Prefs {
-    pub local_dir: PathBuf,
     pub sync_interval_minutes: u64,
     pub download_blocked_files: bool,
 }
@@ -62,7 +85,6 @@ pub struct Prefs {
 impl Prefs {
     pub fn from_settings(s: &Settings) -> Prefs {
         Prefs {
-            local_dir: s.local_dir.clone(),
             sync_interval_minutes: s.sync_interval_minutes,
             download_blocked_files: s.download_blocked_files,
         }
@@ -78,35 +100,53 @@ pub enum Event {
     /// rclone cannot start. The engine stops.
     Fatal(String),
     Settings(Settings),
+    /// The rclone remotes that are not DriveCraft accounts yet.
     Remotes(Vec<String>),
     AccountConnecting,
     Dir {
+        account: String,
         path: String,
         result: Result<Vec<String>, String>,
     },
     SyncProgress {
+        account: String,
         text: String,
         fraction: Option<f32>,
         /// The files that are transferring now.
         current: Vec<Transfer>,
     },
-    /// The storage of the OneDrive account, in bytes.
+    /// The storage of an account, in bytes.
     About {
+        account: String,
         used: Option<u64>,
         total: Option<u64>,
     },
-    /// The files that one sync changed, sorted by path.
-    FilesChanged(Vec<FileChange>),
+    /// Files that a sync changed, sorted by path.
+    FilesChanged {
+        account: String,
+        changes: Vec<FileChange>,
+    },
     /// The top-level folders that the user made on this computer and that
     /// do not sync yet. The UI asks if each one syncs (`SetKeep`) or stays
     /// only on this computer (`KeepLocalOnly`).
-    NewLocalFolders(Vec<String>),
+    NewLocalFolders {
+        account: String,
+        names: Vec<String>,
+    },
     SyncFinished {
+        account: String,
         ok: bool,
         message: String,
     },
-    Log(String),
-    Error(String),
+    /// A message. `account` is None for a message about the app.
+    Log {
+        account: Option<String>,
+        text: String,
+    },
+    Error {
+        account: Option<String>,
+        text: String,
+    },
 }
 
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
@@ -193,9 +233,64 @@ enum Phase {
     },
 }
 
-struct Job {
-    id: i64,
+/// The state of an account between syncs.
+struct Runtime {
+    /// The local files after the last successful sync.
+    last_files: Option<Snapshot>,
+    last_sync: Option<Instant>,
+    /// False after a failed sync. Then pending changes wait for the interval.
+    last_ok: bool,
+    /// The new local folders that the UI shows. See `check_local_folders`.
+    new_folders: Option<Vec<String>>,
+}
+
+impl Runtime {
+    fn new(account: &str) -> Runtime {
+        Runtime {
+            last_files: Snapshot::load(&Settings::snapshot_file(account)),
+            last_sync: None,
+            last_ok: true,
+            new_folders: None,
+        }
+    }
+}
+
+/// The sync that runs now. It has one or two rclone jobs: an optional
+/// `Phase::Pre`, then `Phase::Main`.
+struct RunningSync {
+    account: String,
+    job: i64,
     phase: Phase,
+    /// The local files when the running job started.
+    files_before: Option<Snapshot>,
+    /// True when this sync already reported the local changes (uploads).
+    uploads_reported: bool,
+    /// The number of files that this sync changed.
+    changed_count: usize,
+    /// Live reports (`report_transfers`): the transfers seen, the paths
+    /// reported (NFC), and the files with an error reported.
+    live_seen: HashSet<String>,
+    live_paths: HashSet<String>,
+    live_errors: HashSet<String>,
+    /// The files that this sync found blocked for the first time.
+    newly_blocked: usize,
+}
+
+impl RunningSync {
+    fn new(account: &str) -> RunningSync {
+        RunningSync {
+            account: account.to_string(),
+            job: 0,
+            phase: Phase::Main { resync: false },
+            files_before: None,
+            uploads_reported: false,
+            changed_count: 0,
+            live_seen: HashSet::new(),
+            live_paths: HashSet::new(),
+            live_errors: HashSet::new(),
+            newly_blocked: 0,
+        }
+    }
 }
 
 struct Engine {
@@ -204,30 +299,11 @@ struct Engine {
     settings: Settings,
     emit: Emitter,
     self_tx: Sender<Command>,
-    job: Option<Job>,
-    /// The local files after the last successful sync.
-    last_files: Option<Snapshot>,
-    /// The local files when the running job started.
-    files_before: Option<Snapshot>,
-    /// True when this sync already reported the local changes (uploads).
-    uploads_reported: bool,
-    /// The number of files that this sync changed.
-    changed_count: usize,
-    /// Live reports during a sync (`report_transfers`): the transfers seen,
-    /// the paths reported (NFC), and the files with an error reported.
-    live_seen: HashSet<String>,
-    live_paths: HashSet<String>,
-    live_errors: HashSet<String>,
-    /// The files that this sync found blocked for the first time.
-    newly_blocked: usize,
+    sync: Option<RunningSync>,
+    runtimes: HashMap<String, Runtime>,
     /// True when rclone must restart with new options (`rclone_env`),
     /// as soon as no sync runs.
     restart_rclone: bool,
-    last_sync: Option<Instant>,
-    /// False after a failed sync. Then pending changes wait for the interval.
-    last_ok: bool,
-    /// The new local folders that the UI shows. See `check_local_folders`.
-    new_folders: Option<Vec<String>>,
     last_folder_check: Instant,
 }
 
@@ -241,7 +317,7 @@ impl Engine {
         fs::create_dir_all(Settings::dir())?;
         let binary = find_binary(&settings.rclone_path, build_rclone.as_deref())?;
         let config = Settings::rclone_config_file();
-        let copied = copy_old_account(&binary, &settings, &config);
+        let copied = copy_old_accounts(&binary, &settings, &config);
         let rc = Rclone::start(
             &binary,
             &config,
@@ -250,57 +326,67 @@ impl Engine {
             &rclone_env(&settings),
         )?;
         let version = rc.version()?;
-        let last_files = Snapshot::load(&Settings::snapshot_file());
         emit.send(Event::Started {
             rclone_version: version,
             rclone_path: binary.clone(),
         });
-        if let Some(name) = copied {
-            emit.send(Event::Log(format!(
-                "DriveCraft now has its own rclone configuration file. \
-                 It copied the account \"{name}\" into it."
-            )));
+        if !copied.is_empty() {
+            emit.send(Event::Log {
+                account: None,
+                text: format!(
+                    "DriveCraft now has its own rclone configuration file. \
+                     It copied these accounts into it: {}.",
+                    copied.join(", ")
+                ),
+            });
         }
+        let runtimes = settings
+            .accounts
+            .iter()
+            .map(|a| (a.id.clone(), Runtime::new(&a.id)))
+            .collect();
         Ok(Engine {
             rc,
             binary,
             settings,
             emit,
             self_tx,
-            job: None,
-            last_files,
-            files_before: None,
-            uploads_reported: false,
-            changed_count: 0,
-            live_seen: HashSet::new(),
-            live_paths: HashSet::new(),
-            live_errors: HashSet::new(),
-            newly_blocked: 0,
+            sync: None,
+            runtimes,
             restart_rclone: false,
-            last_sync: None,
-            last_ok: true,
-            new_folders: None,
             last_folder_check: Instant::now(),
         })
     }
 
     fn run(&mut self, rx: Receiver<Command>) {
         self.emit.send(Event::Settings(self.settings.clone()));
-        if let (Some(remotes), Some(name)) = (self.refresh_remotes(), &self.settings.remote)
-            && !remotes.contains(name)
-        {
-            // The account is not in the configuration file of DriveCraft.
-            // Show the sign-in page.
-            self.error(format!(
-                "The account \"{name}\" is not set up in DriveCraft. Sign in again."
-            ));
-            self.settings.remote = None;
+        if let Some(remotes) = self.refresh_remotes() {
+            // An account whose remote is not in the rclone file of DriveCraft
+            // cannot sync. The user signs in again; the folder stays.
+            let missing: Vec<Account> = self
+                .settings
+                .accounts
+                .iter()
+                .filter(|a| !remotes.contains(&a.id))
+                .cloned()
+                .collect();
+            for a in missing {
+                self.error(
+                    None,
+                    format!(
+                        "The account \"{}\" is not set up in DriveCraft. Sign in again. \
+                         Its folder {} stays on this computer.",
+                        a.name,
+                        a.local_dir.display()
+                    ),
+                );
+                self.settings.accounts.retain(|x| x.id != a.id);
+                self.runtimes.remove(&a.id);
+            }
             self.save();
         }
-        if self.settings.remote.is_some() {
-            self.refresh_about();
-        }
-        self.check_local_folders();
+        self.refresh_about_all();
+        self.check_all_local_folders();
         loop {
             match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
@@ -309,8 +395,8 @@ impl Engine {
             }
             self.tick();
         }
-        if let Some(job) = &self.job {
-            let _ = self.rc.call("job/stop", json!({ "jobid": job.id }));
+        if let Some(sync) = &self.sync {
+            let _ = self.rc.call("job/stop", json!({ "jobid": sync.job }));
         }
         // Dropping `self.rc` stops rclone.
     }
@@ -320,53 +406,88 @@ impl Engine {
             Command::RefreshRemotes => {
                 self.refresh_remotes();
             }
-            Command::ConnectAccount { name } => self.connect_account(name),
-            Command::AccountResult(Ok(name)) => {
-                self.log(format!("The account \"{name}\" is connected."));
+            Command::AddAccount { provider } => self.connect_account(provider),
+            Command::AccountResult(Ok((id, provider))) => {
+                self.report(|s| s.add_account(id, provider));
                 self.refresh_remotes();
-                self.handle(Command::SelectRemote(name));
             }
             Command::AccountResult(Err(e)) => {
-                self.error(format!("Cannot connect the account: {e}"))
+                self.error(None, format!("Cannot connect the account: {e}"))
             }
-            Command::SelectRemote(name) => self.report(|s| s.select_remote(name)),
-            Command::UpdatePrefs(p) => self.report(|s| s.update_prefs(p)),
-            Command::ListDir(path) => {
-                let result = self.list_dir(&path).map_err(|e| format!("{e:#}"));
-                self.emit.send(Event::Dir { path, result });
+            Command::UseRemote(id) => {
+                let provider = self
+                    .rc
+                    .call("config/get", json!({ "name": id }))
+                    .ok()
+                    .and_then(|v| v["type"].as_str().map(String::from))
+                    .unwrap_or_else(|| "onedrive".into());
+                self.report(|s| s.add_account(id, provider));
+                self.refresh_remotes();
             }
-            Command::SetKeep { path, keep } => {
-                self.settings.set_keep(&path, keep);
-                self.save();
-                self.check_local_folders();
-                self.start_sync();
+            Command::RemoveAccount(id) => self.report(|s| s.remove_account(&id)),
+            Command::UpdatePrefs(p) => self.update_prefs(p),
+            Command::UpdateAccount {
+                account,
+                name,
+                local_dir,
+            } => self.report(|s| s.update_account(&account, name, local_dir)),
+            Command::ListDir { account, path } => {
+                let result = self.list_dir(&account, &path).map_err(|e| format!("{e:#}"));
+                self.emit.send(Event::Dir {
+                    account,
+                    path,
+                    result,
+                });
             }
-            Command::KeepLocalOnly(name) => {
-                if is_safe_relative(&name) && !name.contains('/') {
-                    self.settings.local_only.insert(name);
+            Command::SetKeep {
+                account,
+                path,
+                keep,
+            } => {
+                if let Some(a) = self.settings.account_mut(&account) {
+                    a.set_keep(&path, keep);
                     self.save();
-                    self.check_local_folders();
+                    self.check_local_folders(&account);
                 }
             }
-            Command::SyncNow => self.start_sync(),
-            Command::RefreshAbout => self.refresh_about(),
-            Command::ForceResync => {
-                self.settings.needs_resync = true;
-                self.save();
-                self.start_sync();
+            Command::KeepLocalOnly { account, name } => {
+                if is_safe_relative(&name)
+                    && !name.contains('/')
+                    && let Some(a) = self.settings.account_mut(&account)
+                {
+                    a.local_only.insert(name);
+                    self.save();
+                    self.check_local_folders(&account);
+                }
             }
-            Command::ConfirmSelection => {
-                self.settings.awaiting_selection = false;
-                self.save();
-                self.start_sync();
+            Command::SyncNow => {
+                for r in self.runtimes.values_mut() {
+                    r.last_sync = None;
+                }
+            }
+            Command::RefreshAbout => self.refresh_about_all(),
+            Command::ForceResync(id) => {
+                if let Some(a) = self.settings.account_mut(&id) {
+                    a.needs_resync = true;
+                    self.save();
+                    self.mark_due(&id);
+                }
+            }
+            Command::ConfirmSelection(id) => {
+                if let Some(a) = self.settings.account_mut(&id) {
+                    a.awaiting_selection = false;
+                    self.save();
+                    self.mark_due(&id);
+                }
             }
             Command::Shutdown => {}
         }
     }
 
-    // ----- account -----
+    // ----- accounts -----
 
-    /// Sends the account list to the UI. Returns None if rclone fails.
+    /// Sends the remotes that are not accounts yet to the UI. Returns all
+    /// remotes, or None if rclone fails.
     fn refresh_remotes(&mut self) -> Option<Vec<String>> {
         match self.rc.call("config/listremotes", json!({})) {
             Ok(v) => {
@@ -378,29 +499,39 @@ impl Engine {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.emit.send(Event::Remotes(remotes.clone()));
+                let free = remotes
+                    .iter()
+                    .filter(|r| self.settings.account(r).is_none())
+                    .cloned()
+                    .collect();
+                self.emit.send(Event::Remotes(free));
                 Some(remotes)
             }
             Err(e) => {
-                self.error(format!("{e:#}"));
+                self.error(None, format!("{e:#}"));
                 None
             }
         }
     }
 
-    fn connect_account(&mut self, name: String) {
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_alphanumeric() || "-_ ".contains(c))
-        {
-            self.error(
-                "Use only letters, digits, spaces, \"-\" and \"_\" in the account name.".into(),
-            );
-            return;
-        }
+    fn connect_account(&mut self, provider: String) {
+        let remotes = self.refresh_remotes().unwrap_or_default();
+        // The remote name never shows in the UI: "onedrive", "onedrive-2", …
+        let id = (1..)
+            .map(|n| match n {
+                1 => provider.clone(),
+                n => format!("{provider}-{n}"),
+            })
+            .find(|id| !remotes.contains(id) && self.settings.account(id).is_none())
+            .expect("an unused remote name exists");
         self.emit.send(Event::AccountConnecting);
-        self.log("Log in to Microsoft in the browser window that opens.".into());
+        self.log(
+            None,
+            format!(
+                "Sign in to {} in the browser window that opens.",
+                provider_label(&provider)
+            ),
+        );
         let binary = self.binary.clone();
         let config = Settings::rclone_config_file();
         let tx = self.self_tx.clone();
@@ -409,13 +540,13 @@ impl Engine {
             let result = Process::new(&binary)
                 .arg("--config")
                 .arg(&config)
-                .args(["config", "create", &name, "onedrive"])
+                .args(["config", "create", &id, &provider])
                 .stdin(Stdio::null())
                 .output()
                 .map_err(|e| e.to_string())
                 .and_then(|out| {
                     if out.status.success() {
-                        Ok(name)
+                        Ok((id, provider))
                     } else {
                         Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
                     }
@@ -424,57 +555,127 @@ impl Engine {
         });
     }
 
-    fn select_remote(&mut self, name: String) -> Result<()> {
-        if self.settings.remote.as_deref() == Some(name.as_str()) {
+    /// Adds an account for the rclone remote `id`. Like the official
+    /// client, a new account starts with all top-level folders on, but it
+    /// does not sync before the user confirms the selection.
+    fn add_account(&mut self, id: String, provider: String) -> Result<()> {
+        if self.settings.account(&id).is_some() {
             return Ok(());
         }
-        if self.job.is_some() {
-            bail!("Wait until the sync is complete, then change the account.");
+        let label = provider_label(&provider).to_string();
+        let name = (1..)
+            .map(|n| match n {
+                1 => label.clone(),
+                n => format!("{label} {n}"),
+            })
+            .find(|name| !self.settings.accounts.iter().any(|a| &a.name == name))
+            .expect("an unused account name exists");
+        let taken = self.settings.other_account_dirs(&id);
+        let local_dir = new_account_dir(&home(), &name, &taken);
+        check_local_dir(&local_dir, &home(), &taken)?;
+        let mut account = Account {
+            id: id.clone(),
+            name: name.clone(),
+            provider,
+            local_dir,
+            needs_resync: true,
+            awaiting_selection: true,
+            ..Account::default()
+        };
+        // An earlier account with the same remote can have left a file list.
+        let _ = fs::remove_file(Settings::snapshot_file(&id));
+        self.settings.accounts.push(account.clone());
+        self.runtimes.insert(id.clone(), Runtime::new(&id));
+        match self.list_dir(&id, "") {
+            Ok(top) => account.pending_pin.extend(top),
+            Err(e) => self.error(
+                Some(&id),
+                format!("Cannot list the folders of \"{name}\": {e:#}"),
+            ),
         }
-        // The folder selection belongs to the old account. A new account
-        // starts with all top-level folders on, like the official client.
-        self.settings.remote = Some(name);
-        self.settings.pinned.clear();
-        self.settings.pending_pin.clear();
-        self.settings.pending_unpin.clear();
-        self.settings.local_only.clear();
-        self.settings.needs_resync = true;
-        // The user chooses the folders before the first sync.
-        self.settings.awaiting_selection = true;
-        self.forget_files();
-        match self.list_dir("") {
-            Ok(top) => self.settings.pending_pin.extend(top),
-            Err(e) => self.error(format!("Cannot list the OneDrive folders: {e:#}")),
+        if let Some(a) = self.settings.account_mut(&id) {
+            *a = account;
         }
+        self.log(Some(&id), format!("The account \"{name}\" is connected."));
         self.save();
-        self.refresh_about();
-        self.check_local_folders();
+        self.refresh_about(&id);
+        self.check_local_folders(&id);
         Ok(())
     }
 
-    fn update_prefs(&mut self, p: Prefs) -> Result<()> {
-        if self.settings.local_dir != p.local_dir {
-            if self.job.is_some() {
-                bail!("Wait until the sync is complete, then change the folder.");
-            }
-            check_local_dir(&p.local_dir, &home())?;
-            // The old folder stays as it is. The next sync fills the new folder.
-            self.settings.local_dir = p.local_dir;
-            self.settings.local_only.clear();
-            self.settings.needs_resync = true;
-            self.forget_files();
-            self.check_local_folders();
-            self.log(format!(
-                "The OneDrive folder is now {}.",
-                self.settings.local_dir.display()
-            ));
+    /// Signs out of an account. The local folder and its files stay.
+    fn remove_account(&mut self, id: &str) -> Result<()> {
+        if self.sync.as_ref().is_some_and(|s| s.account == id) {
+            bail!("Wait until the sync of this account is complete, then sign out.");
         }
+        let Some(account) = self.settings.account(id).cloned() else {
+            return Ok(());
+        };
+        self.settings.accounts.retain(|a| a.id != id);
+        self.runtimes.remove(id);
+        let filters = Settings::filters_file(id);
+        let mut md5 = filters.clone().into_os_string();
+        md5.push(".md5");
+        for file in [filters, PathBuf::from(md5), Settings::snapshot_file(id)] {
+            let _ = fs::remove_file(file);
+        }
+        if let Err(e) = self.rc.call("config/delete", json!({ "name": id })) {
+            self.error(None, format!("Cannot remove the rclone remote: {e:#}"));
+        }
+        self.save();
+        self.log(
+            None,
+            format!(
+                "You signed out of \"{}\". Its folder {} stays on this computer.",
+                account.name,
+                account.local_dir.display()
+            ),
+        );
+        self.refresh_remotes();
+        Ok(())
+    }
+
+    fn update_prefs(&mut self, p: Prefs) {
         self.settings.sync_interval_minutes = p.sync_interval_minutes.max(1);
         if self.settings.download_blocked_files != p.download_blocked_files {
-            // The filter rules change too, so the next sync is a resync.
-            // Turned on, it downloads the blocked files.
+            // The filter rules change too, so the next syncs are resyncs.
+            // Turned on, they download the blocked files.
             self.settings.download_blocked_files = p.download_blocked_files;
             self.restart_rclone = true;
+        }
+        self.save();
+    }
+
+    fn update_account(&mut self, id: &str, name: String, local_dir: PathBuf) -> Result<()> {
+        let others = self.settings.other_account_dirs(id);
+        let syncing = self.sync.as_ref().is_some_and(|s| s.account == id);
+        let Some(account) = self.settings.account(id).cloned() else {
+            return Ok(());
+        };
+        let name = name.trim().to_string();
+        if !name.is_empty()
+            && name != account.name
+            && let Some(a) = self.settings.account_mut(id)
+        {
+            a.name = name;
+        }
+        if account.local_dir != local_dir {
+            if syncing {
+                bail!("Wait until the sync is complete, then change the folder.");
+            }
+            check_local_dir(&local_dir, &home(), &others)?;
+            // The old folder stays as it is. The next sync fills the new folder.
+            if let Some(a) = self.settings.account_mut(id) {
+                a.local_dir = local_dir.clone();
+                a.local_only.clear();
+                a.needs_resync = true;
+            }
+            self.forget_files(id);
+            self.check_local_folders(id);
+            self.log(
+                Some(id),
+                format!("The folder of this account is now {}.", local_dir.display()),
+            );
         }
         self.save();
         Ok(())
@@ -494,40 +695,49 @@ impl Engine {
         ) {
             Ok(rc) => {
                 self.rc = rc;
-                if self.settings.remote.is_some() {
-                    self.start_sync();
+                for r in self.runtimes.values_mut() {
+                    r.last_sync = None;
                 }
             }
             Err(e) => self.emit.send(Event::Fatal(format!("{e:#}"))),
         }
     }
 
-    fn refresh_about(&mut self) {
-        let Ok(fs_name) = self.remote_fs() else {
+    fn refresh_about_all(&mut self) {
+        let ids: Vec<String> = self
+            .settings
+            .accounts
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+        for id in ids {
+            self.refresh_about(&id);
+        }
+    }
+
+    fn refresh_about(&mut self, id: &str) {
+        let Some(fs_name) = self.settings.account(id).map(Account::remote_fs) else {
             return;
         };
         match self.rc.call("operations/about", json!({ "fs": fs_name })) {
             Ok(v) => self.emit.send(Event::About {
+                account: id.to_string(),
                 used: v["used"].as_u64(),
                 total: v["total"].as_u64(),
             }),
-            Err(e) => self.log(format!("Cannot read the storage use: {e:#}")),
-        }
-    }
-
-    fn remote_fs(&self) -> Result<String> {
-        match &self.settings.remote {
-            Some(r) => Ok(format!("{r}:")),
-            None => bail!("Connect a OneDrive account first."),
+            Err(e) => self.log(Some(id), format!("Cannot read the storage use: {e:#}")),
         }
     }
 
     // ----- folders -----
 
-    fn list_dir(&self, path: &str) -> Result<Vec<String>> {
+    fn list_dir(&self, id: &str, path: &str) -> Result<Vec<String>> {
+        let Some(account) = self.settings.account(id) else {
+            bail!("This account does not exist any more.");
+        };
         let v = self.rc.call(
             "operations/list",
-            json!({ "fs": self.remote_fs()?, "remote": path, "opt": { "dirsOnly": true } }),
+            json!({ "fs": account.remote_fs(), "remote": path, "opt": { "dirsOnly": true } }),
         )?;
         let mut names: Vec<String> = v["list"]
             .as_array()
@@ -543,8 +753,14 @@ impl Engine {
 
     // ----- sync -----
 
+    fn mark_due(&mut self, id: &str) {
+        if let Some(r) = self.runtimes.get_mut(id) {
+            r.last_sync = None;
+        }
+    }
+
     fn tick(&mut self) {
-        if self.job.is_some() {
+        if self.sync.is_some() {
             self.poll_job();
             return;
         }
@@ -553,82 +769,100 @@ impl Engine {
             return;
         }
         if self.last_folder_check.elapsed() >= Duration::from_secs(5) {
-            self.check_local_folders();
+            self.check_all_local_folders();
         }
         let interval = Duration::from_secs(self.settings.sync_interval_minutes.max(1) * 60);
-        let due = self.last_sync.is_none_or(|t| t.elapsed() >= interval)
-            || (self.settings.has_pending() && self.last_ok);
-        if due && self.settings.remote.is_some() {
-            self.start_sync();
+        // One sync at a time: the first account that is due starts.
+        let due = self.settings.accounts.iter().find(|a| {
+            let Some(r) = self.runtimes.get(&a.id) else {
+                return false;
+            };
+            !a.awaiting_selection
+                && (r.last_sync.is_none_or(|t| t.elapsed() >= interval)
+                    || (a.has_pending() && r.last_ok))
+        });
+        if let Some(id) = due.map(|a| a.id.clone()) {
+            self.start_sync(&id);
         }
     }
 
-    fn start_sync(&mut self) {
-        if self.job.is_some() {
-            return; // The running job sees the new settings when it ends.
+    fn start_sync(&mut self, id: &str) {
+        if self.sync.is_some() {
+            return; // The running sync sees the new settings when it ends.
         }
-        if self.settings.awaiting_selection {
+        let Some(a) = self.settings.account(id) else {
+            return;
+        };
+        if a.awaiting_selection {
             return; // The first sync waits for `Command::ConfirmSelection`.
         }
-        let s = &self.settings;
         // Before a switch change, sync once with the old selection, so that no
         // local change is lost. Without a previous sync (needs_resync) this is
         // only needed when a folder gets removed from this computer.
-        let phase = if s.has_pending() && (!s.needs_resync || !s.pending_unpin.is_empty()) {
+        let phase = if a.has_pending() && (!a.needs_resync || !a.pending_unpin.is_empty()) {
             Phase::Pre
         } else {
-            if s.has_pending() {
-                self.apply_pending();
+            if a.has_pending() {
+                self.apply_pending(id);
             }
             Phase::Main {
-                resync: self.settings.needs_resync,
+                resync: self.settings.account(id).is_some_and(|a| a.needs_resync),
             }
         };
-        self.uploads_reported = false;
-        self.changed_count = 0;
-        self.live_seen.clear();
-        self.live_paths.clear();
-        self.live_errors.clear();
-        self.newly_blocked = 0;
+        self.sync = Some(RunningSync::new(id));
         if let Err(e) = self.start_bisync(phase) {
-            self.last_sync = Some(Instant::now());
-            self.finish(false, format!("{e:#}"));
+            self.sync = None;
+            if let Some(r) = self.runtimes.get_mut(id) {
+                r.last_sync = Some(Instant::now());
+            }
+            self.finish(id, false, format!("{e:#}"));
         }
     }
 
     fn start_bisync(&mut self, phase: Phase) -> Result<()> {
+        let id = self.sync.as_ref().context("no sync runs")?.account.clone();
+        let a = self
+            .settings
+            .account(&id)
+            .cloned()
+            .context("the account does not exist any more")?;
         let resync = match phase {
-            Phase::Pre => self.settings.needs_resync,
+            Phase::Pre => a.needs_resync,
             Phase::Main { resync } => resync,
         };
-        let s = &self.settings;
-        check_local_dir(&s.local_dir, &home())?;
-        if !s.local_dir.is_dir() {
+        check_local_dir(
+            &a.local_dir,
+            &home(),
+            &self.settings.other_account_dirs(&id),
+        )?;
+        if !a.local_dir.is_dir() {
             // After a previous sync, a missing folder was moved, renamed, or
             // deleted. A new empty folder would make bisync delete all files
-            // on OneDrive. A resync never deletes, so it can create the folder.
+            // online. A resync never deletes, so it can create the folder.
             if !resync {
                 bail!(
-                    "The OneDrive folder {} is missing. If you moved or renamed it, \
-                     select it again in Settings. DriveCraft does not sync until then.",
-                    s.local_dir.display()
+                    "The folder {} is missing. If you moved or renamed it, select it again \
+                     in the settings of this account. DriveCraft does not sync it until then.",
+                    a.local_dir.display()
                 );
             }
-            fs::create_dir_all(&s.local_dir)
-                .with_context(|| format!("cannot create {}", s.local_dir.display()))?;
+            fs::create_dir_all(&a.local_dir)
+                .with_context(|| format!("cannot create {}", a.local_dir.display()))?;
         }
-        let rules = s.filter_rules();
-        fs::write(Settings::filters_file(), &rules)?;
+        let rules = a.filter_rules(self.settings.download_blocked_files);
+        let filters = Settings::filters_file(&id);
+        fs::write(&filters, &rules)?;
         // Bisync stops when the filter rules differ from the rules of the
         // last resync, for example after a DriveCraft update. Then this sync
         // must be a resync. A resync never deletes. This check comes after
         // the check of the missing folder: only the user may make a resync
         // that creates the folder.
-        let mut md5_file = Settings::filters_file().into_os_string();
+        let mut md5_file = filters.clone().into_os_string();
         md5_file.push(".md5");
         let stored = fs::read_to_string(&md5_file).ok();
         let resync = if !resync && !filters_match_last_resync(&rules, stored.as_deref()) {
             self.log(
+                Some(&id),
                 "The sync rules changed, so this sync compares all files again. \
                  It deletes nothing."
                     .into(),
@@ -637,31 +871,35 @@ impl Engine {
         } else {
             resync
         };
-        self.files_before = Some(self.take_files());
-        let s = &self.settings;
+        let files_before = take_files(&a);
         let mut params = json!({
-            "path1": s.local_dir,
-            "path2": self.remote_fs()?,
-            "filtersFile": Settings::filters_file(),
+            "path1": a.local_dir,
+            "path2": a.remote_fs(),
+            "filtersFile": filters,
             "resync": resync,
             "_async": true,
         });
         if resync {
             // Without a mode, a resync prefers path1: an old local copy
-            // overwrites a newer file on OneDrive. Keep the newer version.
+            // overwrites a newer file online. Keep the newer version.
             params["resyncMode"] = json!("newer");
         }
         let v = self.rc.call("sync/bisync", params)?;
-        let id = v["jobid"]
+        let job = v["jobid"]
             .as_i64()
             .context("rclone did not return a job id")?;
-        self.job = Some(Job { id, phase });
+        if let Some(sync) = self.sync.as_mut() {
+            sync.job = job;
+            sync.phase = phase;
+            sync.files_before = Some(files_before);
+        }
         let text = if resync {
             "Preparing a full sync…"
         } else {
             "Checking for changes…"
         };
         self.emit.send(Event::SyncProgress {
+            account: id,
             text: text.into(),
             fraction: None,
             current: Vec::new(),
@@ -670,86 +908,111 @@ impl Engine {
     }
 
     fn poll_job(&mut self) {
-        let Some(job) = &self.job else { return };
-        let (id, phase) = (job.id, job.phase);
-        let status = match self.rc.call("job/status", json!({ "jobid": id })) {
+        let Some(sync) = &self.sync else { return };
+        let (id, job, phase) = (sync.account.clone(), sync.job, sync.phase);
+        let status = match self.rc.call("job/status", json!({ "jobid": job })) {
             Ok(v) => v,
             Err(e) => {
-                self.job = None;
-                self.finish(false, format!("{e:#}"));
+                self.sync = None;
+                self.finish(&id, false, format!("{e:#}"));
                 return;
             }
         };
         let finished = status["finished"].as_bool().unwrap_or(false);
-        self.report_transfers(id);
+        self.report_transfers();
+        let remote = self
+            .settings
+            .account(&id)
+            .map(Account::remote_fs)
+            .unwrap_or_default();
         if !finished {
             if let Ok(st) = self
                 .rc
-                .call("core/stats", json!({ "group": format!("job/{id}") }))
+                .call("core/stats", json!({ "group": format!("job/{job}") }))
             {
-                let remote = self.remote_fs().unwrap_or_default();
-                self.emit.send(progress(&st, &remote));
+                let (text, fraction, current) = progress(&st, &remote);
+                self.emit.send(Event::SyncProgress {
+                    account: id,
+                    text,
+                    fraction,
+                    current,
+                });
             }
             return;
         }
-        self.job = None;
-        self.last_sync = Some(Instant::now());
+        if let Some(r) = self.runtimes.get_mut(&id) {
+            r.last_sync = Some(Instant::now());
+        }
         if !status["success"].as_bool().unwrap_or(false) {
-            self.files_before = None;
-            if self.newly_blocked > 0 {
+            let newly_blocked = self.sync.take().map_or(0, |s| s.newly_blocked);
+            if newly_blocked > 0 {
                 // The filter rules exclude the new blocked files now. Their
                 // number is finite, so this cannot repeat for ever.
                 self.log(
-                    "The sync stopped at files that OneDrive blocks. \
-                     DriveCraft starts it again and skips these files."
+                    Some(&id),
+                    "The sync stopped at blocked files. DriveCraft starts it again \
+                     and skips these files."
                         .into(),
                 );
-                self.start_sync();
+                self.start_sync(&id);
                 return;
             }
             let err = status["error"].as_str().unwrap_or("unknown error");
-            self.finish(false, format!("The sync failed: {err}"));
+            self.finish(&id, false, format!("The sync failed: {err}"));
             return;
         }
         self.report_changes();
         match phase {
             Phase::Pre => {
-                self.settings.needs_resync = false;
-                self.apply_pending();
-                self.check_local_folders();
-                let resync = self.settings.needs_resync;
+                if let Some(a) = self.settings.account_mut(&id) {
+                    a.needs_resync = false;
+                }
+                self.apply_pending(&id);
+                self.check_local_folders(&id);
+                let resync = self.settings.account(&id).is_some_and(|a| a.needs_resync);
                 if let Err(e) = self.start_bisync(Phase::Main { resync }) {
-                    self.finish(false, format!("{e:#}"));
+                    self.sync = None;
+                    self.finish(&id, false, format!("{e:#}"));
                 }
             }
             Phase::Main { resync } => {
                 if resync {
-                    self.settings.needs_resync = false;
+                    if let Some(a) = self.settings.account_mut(&id) {
+                        a.needs_resync = false;
+                    }
                     self.save();
                 }
-                let message = match self.changed_count {
+                let changed = self.sync.take().map_or(0, |s| s.changed_count);
+                let message = match changed {
                     0 => "The sync is complete. Nothing changed.".to_string(),
                     1 => "The sync is complete. 1 file changed.".to_string(),
                     n => format!("The sync is complete. {n} files changed."),
                 };
-                self.finish(true, message);
+                self.finish(&id, true, message);
             }
         }
     }
 
-    /// Applies the switch changes. The local copies of folders that no longer
-    /// sync are deleted. A successful sync ran before this, so the files are
-    /// also on OneDrive.
-    fn apply_pending(&mut self) {
-        for path in self.settings.apply_pending() {
+    /// Applies the switch changes of an account. The local copies of
+    /// folders that no longer sync are deleted. A successful sync ran
+    /// before this, so the files are also online.
+    fn apply_pending(&mut self, id: &str) {
+        let Some(a) = self.settings.account_mut(id) else {
+            return;
+        };
+        let removed = a.apply_pending();
+        let dir = a.local_dir.clone();
+        for path in removed {
             if !is_safe_relative(&path) {
                 continue;
             }
-            let local = self.settings.local_dir.join(&path);
+            let local = dir.join(&path);
             if local.exists() {
                 match fs::remove_dir_all(&local) {
-                    Ok(()) => self.log(format!("\"{path}\" is now only on OneDrive.")),
-                    Err(e) => self.error(format!("Cannot remove {}: {e}", local.display())),
+                    Ok(()) => self.log(Some(id), format!("\"{path}\" is now only online.")),
+                    Err(e) => {
+                        self.error(Some(id), format!("Cannot remove {}: {e}", local.display()))
+                    }
                 }
             }
         }
@@ -758,84 +1021,105 @@ impl Engine {
 
     // ----- file changes -----
 
-    fn take_files(&self) -> Snapshot {
-        let s = &self.settings;
-        Snapshot::take(
-            s.remote.as_deref().unwrap_or_default(),
-            &s.local_dir,
-            |rel| s.is_synced_path(rel),
-        )
-    }
-
     /// Reports the files that the running job copied since the last call,
     /// and the files that it could not copy. rclone names the source and the
     /// destination of each copy, so the direction is known. Deletes come
     /// only from the file lists, in `report_changes`.
-    fn report_transfers(&mut self, id: i64) {
-        let Ok(v) = self
-            .rc
-            .call("core/transferred", json!({ "group": format!("job/{id}") }))
-        else {
+    fn report_transfers(&mut self) {
+        let Some(sync) = self.sync.as_mut() else {
             return;
         };
-        let remote = self.remote_fs().unwrap_or_default();
-        let live = live_transfers(&v, &remote, &mut self.live_seen);
+        let id = sync.account.clone();
+        let Ok(v) = self.rc.call(
+            "core/transferred",
+            json!({ "group": format!("job/{}", sync.job) }),
+        ) else {
+            return;
+        };
+        let remote = format!("{id}:");
+        let live = live_transfers(&v, &remote, &mut sync.live_seen);
+        let mut messages = Vec::new();
+        let mut errors = Vec::new();
         let mut settings_changed = false;
+        let download_blocked = self.settings.download_blocked_files;
+        let Some(account) = self.settings.accounts.iter_mut().find(|a| a.id == id) else {
+            return;
+        };
+        let provider = provider_label(&account.provider).to_string();
         for (name, err) in live.errors {
             if is_blocked_error(&err) {
                 // Reported once. Later syncs skip the file (filter rules).
-                if self.settings.blocked_files.insert(name.clone()) {
-                    self.newly_blocked += 1;
+                if account.blocked_files.insert(name.clone()) {
+                    sync.newly_blocked += 1;
                     settings_changed = true;
-                    self.log(format!(
-                        "OneDrive blocks \"{name}\": it marks the file as infected with a \
+                    messages.push(format!(
+                        "{provider} blocks \"{name}\": it marks the file as infected with a \
                          virus. DriveCraft skips this file. To download blocked files, turn on \
                          \"Download blocked files\" in Settings."
                     ));
                 }
-            } else if self.live_errors.insert(name.clone()) {
-                self.error(format!("Cannot sync \"{name}\": {err}"));
+            } else if sync.live_errors.insert(name.clone()) {
+                errors.push(format!("Cannot sync \"{name}\": {err}"));
             }
         }
         // A blocked file that downloads now (the switch is on) is not
         // blocked any more.
-        for c in &live.changes {
-            if self.settings.blocked_files.remove(&c.path) {
-                settings_changed = true;
+        if download_blocked {
+            for c in &live.changes {
+                settings_changed |= account.blocked_files.remove(&c.path);
             }
-        }
-        if settings_changed {
-            self.save();
         }
         let mut changes: Vec<FileChange> = live
             .changes
             .into_iter()
-            .filter(|c| self.live_paths.insert(nfc(&c.path)))
+            .filter(|c| sync.live_paths.insert(nfc(&c.path)))
             .collect();
+        sync.changed_count += changes.len();
+        for m in messages {
+            self.log(Some(&id), m);
+        }
+        for e in errors {
+            self.error(Some(&id), e);
+        }
+        if settings_changed {
+            self.save();
+        }
         if !changes.is_empty() {
             changes.sort_by(|a, b| a.path.cmp(&b.path));
-            self.changed_count += changes.len();
-            self.emit.send(Event::FilesChanged(changes));
+            self.emit.send(Event::FilesChanged {
+                account: id,
+                changes,
+            });
         }
     }
 
     /// Reports the files that the finished job changed, and keeps the new
     /// list for the next sync.
     fn report_changes(&mut self) {
-        let Some(before) = self.files_before.take() else {
+        let Some(sync) = self.sync.as_mut() else {
             return;
         };
-        let after = self.take_files();
+        let id = sync.account.clone();
+        let Some(before) = sync.files_before.take() else {
+            return;
+        };
+        let Some(account) = self.settings.account(&id) else {
+            return;
+        };
+        let after = take_files(account);
+        let Some(runtime) = self.runtimes.get_mut(&id) else {
+            return;
+        };
         let mut changes = Vec::new();
         // The local changes since the last sync. Only the first job of a
         // sync reports all of them. A later job has a new folder selection:
         // it reports only the local files that the new selection added,
         // because they upload. The files of a folder that no longer syncs
-        // are not "deleted from OneDrive".
-        if let Some(last) = &self.last_files
+        // are not "deleted online".
+        if let Some(last) = &runtime.last_files
             && last.matches(&before.remote, &before.local_dir)
         {
-            if self.uploads_reported {
+            if sync.uploads_reported {
                 changes.extend(added(last, &before, ChangeKind::Uploaded));
             } else {
                 changes.extend(diff(
@@ -846,7 +1130,7 @@ impl Engine {
                 ));
             }
         }
-        self.uploads_reported = true;
+        sync.uploads_reported = true;
         changes.extend(diff(
             &before,
             &after,
@@ -856,99 +1140,151 @@ impl Engine {
         // The copies that `report_transfers` reported already.
         changes.retain(|c| {
             matches!(c.kind, ChangeKind::DeletedHere | ChangeKind::DeletedOnline)
-                || !self.live_paths.contains(&nfc(&c.path))
+                || !sync.live_paths.contains(&nfc(&c.path))
         });
-        if let Err(e) = after.save(&Settings::snapshot_file()) {
-            self.error(format!("Cannot save the file list: {e:#}"));
+        sync.changed_count += changes.len();
+        let saved = after.save(&Settings::snapshot_file(&id));
+        runtime.last_files = Some(after);
+        if let Err(e) = saved {
+            self.error(Some(&id), format!("Cannot save the file list: {e:#}"));
         }
-        self.last_files = Some(after);
         if !changes.is_empty() {
-            self.changed_count += changes.len();
-            self.emit.send(Event::FilesChanged(changes));
+            self.emit.send(Event::FilesChanged {
+                account: id,
+                changes,
+            });
         }
     }
 
-    /// The account or the folder changed, so the old file list is not valid.
-    fn forget_files(&mut self) {
-        self.last_files = None;
-        let _ = fs::remove_file(Settings::snapshot_file());
+    /// The account or its folder changed, so the old file list is not valid.
+    fn forget_files(&mut self, id: &str) {
+        if let Some(r) = self.runtimes.get_mut(id) {
+            r.last_files = None;
+        }
+        let _ = fs::remove_file(Settings::snapshot_file(id));
     }
 
     // ----- helpers -----
 
-    fn finish(&mut self, ok: bool, message: String) {
-        self.last_ok = ok;
-        self.emit.send(Event::SyncFinished { ok, message });
+    fn finish(&mut self, id: &str, ok: bool, message: String) {
+        if let Some(r) = self.runtimes.get_mut(id) {
+            r.last_ok = ok;
+        }
+        self.emit.send(Event::SyncFinished {
+            account: id.to_string(),
+            ok,
+            message,
+        });
         self.emit.send(Event::Settings(self.settings.clone()));
         if ok {
-            self.refresh_about();
+            self.refresh_about(id);
         }
-        self.check_local_folders();
+        self.check_local_folders(id);
     }
 
-    /// Finds the top-level local folders that do not sync, and sends them
-    /// to the UI when the list changes. Each new folder gets one log entry.
-    fn check_local_folders(&mut self) {
+    fn check_all_local_folders(&mut self) {
         self.last_folder_check = Instant::now();
-        if self.settings.remote.is_none() {
-            return;
+        let ids: Vec<String> = self
+            .settings
+            .accounts
+            .iter()
+            .map(|a| a.id.clone())
+            .collect();
+        for id in ids {
+            self.check_local_folders(&id);
         }
-        if self.settings.prune_local_only() {
+    }
+
+    /// Finds the top-level local folders of an account that do not sync,
+    /// and sends them to the UI when the list changes. Each new folder gets
+    /// one log entry.
+    fn check_local_folders(&mut self, id: &str) {
+        let Some(a) = self.settings.account_mut(id) else {
+            return;
+        };
+        let pruned = a.prune_local_only();
+        let found = a.new_local_folders();
+        if pruned {
             self.save();
         }
-        let found = self.settings.new_local_folders();
-        if self.new_folders.as_ref() == Some(&found) {
+        let Some(r) = self.runtimes.get_mut(id) else {
+            return;
+        };
+        if r.new_folders.as_ref() == Some(&found) {
             return;
         }
-        let shown = self.new_folders.take().unwrap_or_default();
+        let shown = r.new_folders.replace(found.clone()).unwrap_or_default();
         for name in found.iter().filter(|n| !shown.contains(n)) {
-            self.log(format!(
-                "\"{name}\" is a new folder on this computer. It does not sync until you select it in Overview."
-            ));
+            self.log(
+                Some(id),
+                format!(
+                    "\"{name}\" is a new folder on this computer. It does not sync until \
+                     you select it in Overview."
+                ),
+            );
         }
-        self.emit.send(Event::NewLocalFolders(found.clone()));
-        self.new_folders = Some(found);
+        self.emit.send(Event::NewLocalFolders {
+            account: id.to_string(),
+            names: found,
+        });
     }
 
     fn save(&mut self) {
         if let Err(e) = self.settings.save() {
-            self.error(format!("Cannot save the settings: {e:#}"));
+            self.error(None, format!("Cannot save the settings: {e:#}"));
         }
         self.emit.send(Event::Settings(self.settings.clone()));
     }
 
     fn report(&mut self, f: impl FnOnce(&mut Self) -> Result<()>) {
         if let Err(e) = f(self) {
-            self.error(format!("{e:#}"));
+            self.error(None, format!("{e:#}"));
         }
     }
 
-    fn log(&self, msg: String) {
-        self.emit.send(Event::Log(msg));
+    fn log(&self, account: Option<&str>, text: String) {
+        self.emit.send(Event::Log {
+            account: account.map(String::from),
+            text,
+        });
     }
 
-    fn error(&self, msg: String) {
-        self.emit.send(Event::Error(msg));
+    fn error(&self, account: Option<&str>, text: String) {
+        self.emit.send(Event::Error {
+            account: account.map(String::from),
+            text,
+        });
     }
 }
 
-/// Before DriveCraft had its own rclone configuration file, the account was
-/// in the default rclone file. On the first start with the new file, this
-/// copies the selected account into it. The default file does not change.
-/// Returns the name of the copied account.
-fn copy_old_account(
-    binary: &std::path::Path,
-    settings: &Settings,
-    config: &std::path::Path,
-) -> Option<String> {
-    if config.exists() {
-        return None;
+/// The synced local files of an account.
+fn take_files(a: &Account) -> Snapshot {
+    Snapshot::take(&a.id, &a.local_dir, |rel| a.is_synced_path(rel))
+}
+
+/// Before DriveCraft had its own rclone configuration file, the accounts
+/// were in the default rclone file. On the first start with the new file,
+/// this copies the accounts into it. The default file does not change.
+/// Returns the names of the copied accounts.
+fn copy_old_accounts(binary: &Path, settings: &Settings, config: &Path) -> Vec<String> {
+    if config.exists() || settings.accounts.is_empty() {
+        return Vec::new();
     }
-    let name = settings.remote.as_ref()?;
-    let text = fs::read_to_string(default_config_file(binary)?).ok()?;
-    let section = config_section(&text, name)?;
-    write_private(config, section.as_bytes()).ok()?;
-    Some(name.clone())
+    let Some(text) = default_config_file(binary).and_then(|f| fs::read_to_string(f).ok()) else {
+        return Vec::new();
+    };
+    let mut out = String::new();
+    let mut names = Vec::new();
+    for a in &settings.accounts {
+        if let Some(section) = config_section(&text, &a.id) {
+            out.push_str(&section);
+            names.push(a.name.clone());
+        }
+    }
+    if names.is_empty() || write_private(config, out.as_bytes()).is_err() {
+        return Vec::new();
+    }
+    names
 }
 
 fn home() -> PathBuf {
@@ -1027,7 +1363,9 @@ fn rclone_env(settings: &Settings) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-fn progress(st: &Value, remote_fs: &str) -> Event {
+/// The text, the done fraction, and the current transfers of a sync, from
+/// an rclone `core/stats` answer.
+fn progress(st: &Value, remote_fs: &str) -> (String, Option<f32>, Vec<Transfer>) {
     let n = |k: &str| st[k].as_u64().unwrap_or(0);
     let (done, total) = (n("bytes"), n("totalBytes"));
     let files = n("totalTransfers");
@@ -1061,11 +1399,7 @@ fn progress(st: &Value, remote_fs: &str) -> Event {
             })
         })
         .collect();
-    Event::SyncProgress {
-        text,
-        fraction,
-        current,
-    }
+    (text, fraction, current)
 }
 
 #[cfg(test)]

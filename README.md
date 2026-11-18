@@ -1,6 +1,6 @@
 # DriveCraft
 
-DriveCraft is an open source OneDrive client for macOS, Windows, and Linux.
+DriveCraft is an open source OneDrive client for macOS, Windows, and Linux. It syncs one or more accounts.
 It uses [rclone](https://rclone.org) to connect to OneDrive.
 The UI uses [egui](https://github.com/emilk/egui).
 
@@ -10,9 +10,10 @@ Status: early prototype (phase 1).
 
 - DriveCraft runs in the tray (the menu bar on macOS), like OneDrive.
 - On macOS, DriveCraft has a Dock icon only while its window is open. Then the window is in Command-Tab and has a menu bar. When you close the window, the Dock icon goes away.
-- Click the tray icon to open the window. Right-click it for a menu: status, **Sync now**, **Open OneDrive folder**, and **Quit DriveCraft**.
+- Click the tray icon to open the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
-- The window has four pages: **Overview**, **Folders**, **Activity**, and **Settings**.
+- The sidebar has three pages for all accounts: **Overview**, **Activity**, and **Settings**. Under them, **Accounts** shows each account with its status and its storage use, and **Add account**.
+- The page of an account has two tabs. **Folders** selects the folders that sync. **Account** shows the storage use, the local folder, **Full resync**, and **Sign out**.
 - The design follows the "Studio" look of the Craft apps: the Inter font, Lucide icons, and the Studio colors. It follows the light or dark mode of the system. You can also select a mode in **Settings**.
 
 The tray icon works on macOS and Windows. Linux has no tray icon yet. On Linux, closing the window stops DriveCraft.
@@ -40,25 +41,26 @@ When DriveCraft has downloaded your files, you can delete the old folder.
 
 ## How it works
 
-DriveCraft keeps one local folder with real copies of your OneDrive files.
+DriveCraft keeps one local folder for each account, with real copies of your files.
 It works like the official client before "Files On-Demand", or like selective sync in Dropbox.
 
-- The default folder is `~/DriveCraft/OneDrive`. `~/DriveCraft` holds one folder for each account.
+- `~/DriveCraft` holds one folder for each account. The first account gets `~/DriveCraft/OneDrive`, the next one `~/DriveCraft/OneDrive 2`. You can rename an account; its folder does not change.
   No other client uses this name, so the folders of DriveCraft and of other clients never collide.
-  You cannot select `~/DriveCraft` itself as the folder of an account.
+  You cannot select `~/DriveCraft` itself as the folder of an account. The folders of two accounts must not be the same, and one must not be inside the other.
 - In **Folders**, each switch selects a folder that syncs to this computer.
   A folder that is off is not on this computer. It stays only on OneDrive.
 - The files in the OneDrive root always sync.
-- A new account starts with all top-level folders on. DriveCraft does not sync yet: it opens **Folders**.
+- A new account starts with all top-level folders on. DriveCraft does not sync it yet: it opens **Folders** of the account.
   Switch off the folders that you want only on OneDrive, then click **Start sync**. Only then does the first download start.
 - When you switch a folder off, the next sync uploads all local changes first. Then it deletes the local copy. The files stay on OneDrive.
 - When you make a new top-level folder in the local folder, it does not sync immediately. **Overview** shows the new folder.
   Select **Sync** to upload it to OneDrive. Select **Do not sync** to keep it only on this computer.
-  **Settings** shows the folders that are only on this computer. You can sync them there later.
+  The **Account** tab shows the folders that are only on this computer. You can sync them there later.
   Hidden folders (names that start with ".") are not shown.
-- DriveCraft syncs at an interval (10 minutes by default), and when you click **Sync now**.
+- DriveCraft syncs each account at an interval (10 minutes by default), and when you click **Sync now**. Only one sync runs at a time; the accounts take turns.
+- **Sign out** removes the account from DriveCraft. Its folder and the files in it stay on this computer.
 - **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted from OneDrive.
-  DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list in `snapshot.json` in the settings folder.
+  DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list of each account in `snapshot-<id>.json` in the settings folder.
 - OneDrive blocks the download of files that it marks as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
   To download these files anyway, turn on **Settings > Sync > Download blocked files**. The same switch covers Google Drive, which blocks files in the same way. Scan such files before you open them.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
@@ -111,7 +113,7 @@ For an offline build, set `DRIVECRAFT_RCLONE_BIN` to a local rclone binary.
 To update rclone, change `RCLONE_VERSION` in `crates/app/build.rs`.
 
 DriveCraft uses its own rclone configuration file, `rclone.conf` in the settings folder. It does not see or change the accounts of your own rclone.
-An earlier version of DriveCraft used the default rclone file. At the first start with the new file, DriveCraft copies the selected account from the default file. The default file does not change.
+An earlier version of DriveCraft used the default rclone file. At the first start with the new file, DriveCraft copies its accounts from the default file. The default file does not change.
 
 rclone uses the MIT license. Each release package includes the rclone license text (`licenses/rclone.txt`).
 
@@ -120,8 +122,9 @@ rclone uses the MIT license. Each release package includes the rclone license te
 You need Rust 1.95 or later.
 
 1. Run `cargo run -p drivecraft`.
-2. Enter a name for the account, then click **Connect account**.
+2. Click **Sign in with Microsoft**.
 3. Log in to Microsoft in the browser window that opens.
+4. Select the folders for this computer, then click **Start sync**.
 
 To run the tests, use `cargo test`.
 
@@ -166,14 +169,16 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 | File | Location on macOS |
 |---|---|
 | Settings | `~/Library/Application Support/drivecraft/settings.toml` |
-| Sync filter | `~/Library/Application Support/drivecraft/filters.txt` |
+| Sync filter of each account | `~/Library/Application Support/drivecraft/filters-<id>.txt` |
 | rclone log | `~/Library/Application Support/drivecraft/rclone.log` |
-| File list after the last sync | `~/Library/Application Support/drivecraft/snapshot.json` |
+| File list of each account after its last sync | `~/Library/Application Support/drivecraft/snapshot-<id>.json` |
 | rclone session (port and password, mode 600) | `~/Library/Application Support/drivecraft/rclone-session.json` |
 | rclone accounts (mode 600) | `~/Library/Application Support/drivecraft/rclone.conf` |
 
+`<id>` is the rclone remote of the account: `onedrive`, `onedrive-2`, and so on. Settings from a version with one account change to the new format at the first start. The files of that account get the new names, so no full resync is necessary.
+
 ## Plan
 
-- Phase 1 (this version): account setup, one local folder with selective sync, sync at an interval.
+- Phase 1 (this version): one or more accounts, one local folder for each account with selective sync, sync at an interval.
 - Phase 2: tray icon, immediate sync when a local file changes, notifications, a conflict window.
 - Phase 3: integration with Finder and Explorer (status icons, placeholder files).

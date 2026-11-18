@@ -1,7 +1,7 @@
 //! The tray icon (the menu bar icon on macOS).
 //!
 //! - A left click opens the DriveCraft window.
-//! - A right click shows a menu: status, Sync now, Open OneDrive folder, Quit.
+//! - A right click shows a menu: status, Sync now, Open DriveCraft folder, Quit.
 //!
 //! The tray works on macOS and Windows. On Linux, tray-icon needs a GTK
 //! event loop on its own thread; that is not done yet, so Linux has no tray.
@@ -65,7 +65,7 @@ mod imp {
         let open = MenuItem::with_id("open", "Open DriveCraft", true, None);
         let status = MenuItem::with_id("status", "Starting…", false, None);
         let sync = MenuItem::with_id("sync", "Sync now", true, None);
-        let drive = MenuItem::with_id("drive", "Open OneDrive folder", true, None);
+        let drive = MenuItem::with_id("drive", "Open DriveCraft folder", true, None);
         let quit = MenuItem::with_id("quit", "Quit DriveCraft", true, None);
         let menu = Menu::new();
         menu.append_items(&[
