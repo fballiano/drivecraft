@@ -29,6 +29,10 @@ pub struct Settings {
     pub local_only: BTreeSet<String>,
     /// True when the next bisync must use --resync.
     pub needs_resync: bool,
+    /// True after a sign-in, until the user confirms the folder selection.
+    /// DriveCraft does not sync before that, so it downloads only the
+    /// folders that the user wants.
+    pub awaiting_selection: bool,
 }
 
 impl Default for Settings {
@@ -44,6 +48,7 @@ impl Default for Settings {
             pending_unpin: BTreeSet::new(),
             local_only: BTreeSet::new(),
             needs_resync: true,
+            awaiting_selection: false,
         }
     }
 }

@@ -23,7 +23,7 @@ use crate::tray::{Tray, TrayAction, TrayState};
 
 fn main() -> eframe::Result {
     let icon = art::render(art::APP_ICON, 256);
-    let mut options = eframe::NativeOptions {
+    let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("DriveCraft")
             .with_inner_size([980.0, 660.0])
@@ -35,16 +35,6 @@ fn main() -> eframe::Result {
             })),
         ..Default::default()
     };
-    // Like OneDrive, DriveCraft lives in the menu bar and has no Dock icon.
-    #[cfg(target_os = "macos")]
-    {
-        options.event_loop_builder = Some(Box::new(|builder| {
-            use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
-            builder.with_activation_policy(ActivationPolicy::Accessory);
-        }));
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = &mut options;
     eframe::run_native(
         "DriveCraft",
         options,
@@ -123,8 +113,13 @@ const MAX_FILES_PER_SYNC: usize = 200;
 #[derive(Clone, PartialEq)]
 enum Status {
     Starting,
-    Syncing { text: String, fraction: Option<f32> },
+    Syncing {
+        text: String,
+        fraction: Option<f32>,
+    },
     Error(String),
+    /// After a sign-in: the first sync waits for the folder selection.
+    ChooseFolders,
     UpToDate,
 }
 
@@ -133,6 +128,10 @@ struct App {
     tray: Option<Tray>,
     tray_rx: Receiver<TrayAction>,
     quitting: bool,
+    /// True while the window is on screen. On macOS, DriveCraft has a Dock
+    /// icon only then. `dock_icon` is the state that macOS has now.
+    window_visible: bool,
+    dock_icon: Option<bool>,
     app_icon: Option<egui::TextureHandle>,
 
     page: Page,
@@ -196,6 +195,8 @@ impl App {
             tray,
             tray_rx,
             quitting: false,
+            window_visible: true,
+            dock_icon: None,
             app_icon: None,
             page: Page::Overview,
             appearance,
@@ -288,6 +289,10 @@ impl App {
                     }
                     if first || remote_changed {
                         self.form_interval = s.sync_interval_minutes;
+                        // After a sign-in, the user chooses the folders first.
+                        if s.awaiting_selection {
+                            self.page = Page::Folders;
+                        }
                     }
                     if s.remote.is_some() {
                         self.connecting = false;
@@ -342,10 +347,14 @@ impl App {
         if let Some(e) = &self.last_error {
             return Status::Error(e.clone());
         }
+        if self.settings.as_ref().is_some_and(|s| s.awaiting_selection) {
+            return Status::ChooseFolders;
+        }
         Status::UpToDate
     }
 
-    fn show_window(&self, ctx: &egui::Context) {
+    fn show_window(&mut self, ctx: &egui::Context) {
+        self.window_visible = true;
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(ViewportCommand::Focus);
@@ -373,12 +382,18 @@ impl App {
         if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() && !self.quitting {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+            self.window_visible = false;
+        }
+        if self.dock_icon != Some(self.window_visible) {
+            set_dock_icon(self.window_visible);
+            self.dock_icon = Some(self.window_visible);
         }
 
         let (state, text) = match self.status() {
             Status::Starting => (TrayState::Idle, "Starting…".to_string()),
             Status::Syncing { .. } => (TrayState::Syncing, "Syncing…".to_string()),
             Status::Error(_) => (TrayState::Error, "Sync problem".to_string()),
+            Status::ChooseFolders => (TrayState::Idle, "Choose your folders".to_string()),
             Status::UpToDate => (TrayState::UpToDate, "Up to date".to_string()),
         };
         let state = if self.fatal.is_some() {
@@ -425,6 +440,28 @@ impl eframe::App for App {
         self.engine.shutdown();
     }
 }
+
+/// On macOS, shows the Dock icon while the window is open, so the window
+/// is in Command-Tab and has a menu bar. With the window closed,
+/// DriveCraft is only in the menu bar, like OneDrive.
+#[cfg(target_os = "macos")]
+fn set_dock_icon(visible: bool) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+    // `logic` runs on the main thread, so this is always Some.
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let policy = if visible {
+        NSApplicationActivationPolicy::Regular
+    } else {
+        NSApplicationActivationPolicy::Accessory
+    };
+    NSApplication::sharedApplication(mtm).setActivationPolicy(policy);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_dock_icon(_visible: bool) {}
 
 fn now_hhmm() -> String {
     jiff::ZonedDateTime::now().strftime("%H:%M").to_string()
@@ -594,6 +631,18 @@ mod preview {
             syncing.syncing = Some(("128 of 342 files · 1210.4 of 3402.0 MB".into(), Some(0.37)));
             shoot("overview-syncing", syncing, dark);
             shoot("folders", demo_app(Page::Folders), dark);
+            for page in [Page::Folders, Page::Overview] {
+                let mut first = demo_app(page);
+                if let Some(s) = &mut first.settings {
+                    s.awaiting_selection = true;
+                }
+                first.new_folders.clear();
+                let name = match page {
+                    Page::Folders => "first-sync-folders",
+                    _ => "first-sync-overview",
+                };
+                shoot(name, first, dark);
+            }
             shoot("activity", demo_app(Page::Activity), dark);
             shoot("settings", demo_app(Page::Settings), dark);
             let mut welcome = demo_app(Page::Overview);

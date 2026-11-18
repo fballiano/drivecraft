@@ -159,6 +159,14 @@ fn overview(app: &mut App, ui: &mut Ui) {
                         "Sync problem".into(),
                         e.clone(),
                     ),
+                    Status::ChooseFolders => (
+                        icons::FOLDER,
+                        t.accent,
+                        t.accent_soft,
+                        "Choose your folders".into(),
+                        "The first sync starts after you choose the folders for this computer."
+                            .into(),
+                    ),
                     Status::UpToDate => (
                         icons::CLOUD_CHECK,
                         t.success,
@@ -196,6 +204,14 @@ fn overview(app: &mut App, ui: &mut Ui) {
                     );
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if status == Status::ChooseFolders {
+                        if primary(ui, true, &format!("{}  Choose folders", icons::FOLDER))
+                            .clicked()
+                        {
+                            app.page = Page::Folders;
+                        }
+                        return;
+                    }
                     let syncing = matches!(status, Status::Syncing { .. });
                     if primary(ui, !syncing, &format!("{}  Sync now", icons::REFRESH)).clicked() {
                         app.engine.send(Command::SyncNow);
@@ -474,6 +490,10 @@ fn folders(app: &mut App, ui: &mut Ui) {
     let Some(s) = app.settings.clone() else {
         return;
     };
+    if s.awaiting_selection {
+        first_sync_card(app, ui);
+        ui.add_space(14.0);
+    }
     let mut actions = Vec::new();
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         list_card(ui, |ui| {
@@ -495,6 +515,32 @@ fn folders(app: &mut App, ui: &mut Ui) {
             FolderAction::Keep(path, keep) => app.engine.send(Command::SetKeep { path, keep }),
         }
     }
+}
+
+/// After a sign-in: the user switches off the folders that stay only on
+/// OneDrive, then starts the first sync. Nothing downloads before that.
+fn first_sync_card(app: &mut App, ui: &mut Ui) {
+    card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                card_title(
+                    ui,
+                    icons::FOLDER_CHECK,
+                    "Choose the folders for this computer",
+                    Some(
+                        "Turn off the folders that you want only on OneDrive. \
+                         Nothing downloads until you start the first sync.",
+                    ),
+                );
+            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if primary(ui, true, &format!("{}  Start sync", icons::REFRESH)).clicked() {
+                    app.engine.send(Command::ConfirmSelection);
+                    app.page = Page::Overview;
+                }
+            });
+        });
+    });
 }
 
 #[allow(clippy::too_many_arguments)]

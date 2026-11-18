@@ -40,6 +40,9 @@ pub enum Command {
     RefreshAbout,
     /// Makes the next sync a full resync. Use this after a sync error.
     ForceResync,
+    /// The user confirmed the folder selection after a sign-in. The first
+    /// sync starts. See `Settings::awaiting_selection`.
+    ConfirmSelection,
     Shutdown,
     #[doc(hidden)]
     AccountResult(Result<String, String>),
@@ -329,6 +332,11 @@ impl Engine {
                 self.save();
                 self.start_sync();
             }
+            Command::ConfirmSelection => {
+                self.settings.awaiting_selection = false;
+                self.save();
+                self.start_sync();
+            }
             Command::Shutdown => {}
         }
     }
@@ -408,6 +416,8 @@ impl Engine {
         self.settings.pending_unpin.clear();
         self.settings.local_only.clear();
         self.settings.needs_resync = true;
+        // The user chooses the folders before the first sync.
+        self.settings.awaiting_selection = true;
         self.forget_files();
         match self.list_dir("") {
             Ok(top) => self.settings.pending_pin.extend(top),
@@ -501,6 +511,9 @@ impl Engine {
     fn start_sync(&mut self) {
         if self.job.is_some() {
             return; // The running job sees the new settings when it ends.
+        }
+        if self.settings.awaiting_selection {
+            return; // The first sync waits for `Command::ConfirmSelection`.
         }
         let s = &self.settings;
         // Before a switch change, sync once with the old selection, so that no

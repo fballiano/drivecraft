@@ -8,7 +8,8 @@ Status: early prototype (phase 1).
 
 ## The app
 
-- DriveCraft runs in the tray (the menu bar on macOS), like OneDrive. It has no Dock icon on macOS.
+- DriveCraft runs in the tray (the menu bar on macOS), like OneDrive.
+- On macOS, DriveCraft has a Dock icon only while its window is open. Then the window is in Command-Tab and has a menu bar. When you close the window, the Dock icon goes away.
 - Click the tray icon to open the window. Right-click it for a menu: status, **Sync now**, **Open OneDrive folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
 - The window has four pages: **Overview**, **Folders**, **Activity**, and **Settings**.
@@ -48,7 +49,8 @@ It works like the official client before "Files On-Demand", or like selective sy
 - In **Folders**, each switch selects a folder that syncs to this computer.
   A folder that is off is not on this computer. It stays only on OneDrive.
 - The files in the OneDrive root always sync.
-- A new account starts with all top-level folders on. Switch off the folders that you do not want.
+- A new account starts with all top-level folders on. DriveCraft does not sync yet: it opens **Folders**.
+  Switch off the folders that you want only on OneDrive, then click **Start sync**. Only then does the first download start.
 - When you switch a folder off, the next sync uploads all local changes first. Then it deletes the local copy. The files stay on OneDrive.
 - When you make a new top-level folder in the local folder, it does not sync immediately. **Overview** shows the new folder.
   Select **Sync** to upload it to OneDrive. Select **Do not sync** to keep it only on this computer.

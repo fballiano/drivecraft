@@ -15,10 +15,10 @@ rfd = "0.18"
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tray-icon = "0.26"
 
-# The same winit version as eframe. DriveCraft only uses it to set the
-# macOS activation policy (no Dock icon).
+# Shows the Dock icon only while the window is open (main.rs, set_dock_icon).
 [target.'cfg(target_os = "macos")'.dependencies]
-winit = { version = "0.30", default-features = false }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSRunningApplication"] }
 
 [build-dependencies]
 sha2 = "0.11"

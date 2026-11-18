@@ -14,7 +14,9 @@ Keep these unless the user changes them:
 - **Folder layout:** `~/DriveCraft/<account>`, default `~/DriveCraft/OneDrive`. `~/DriveCraft` never syncs. It leaves space for more accounts (more OneDrive accounts, later other providers) and never collides with other clients.
 - **No coexistence with the official client.** People replace it, so DriveCraft does not detect it at run time. It only refuses its folder and explains the change.
 - **Tray icon like OneDrive.** A click opens the normal window. Closing the window hides it to the tray.
-- **Latest dependency versions.** Pin an older version only when a dependency forces it, and say why (for example, `winit` 0.30 matches eframe 0.37).
+- **Dock icon on macOS only while the window is open** (`set_dock_icon` in `main.rs`, `NSApplication.setActivationPolicy`).
+- **The first sync waits for the folder selection.** After a sign-in, `Settings::awaiting_selection` blocks every sync until `Command::ConfirmSelection` (**Start sync** on Folders).
+- **Latest dependency versions.** Pin an older version only when a dependency forces it, and say why (for example, `objc2-app-kit` 0.3 matches eframe 0.37).
 
 ## Architecture
 
