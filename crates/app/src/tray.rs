@@ -10,6 +10,8 @@ use std::sync::mpsc::Sender;
 
 use eframe::egui;
 
+// On Linux, nothing sends these actions yet, because there is no tray.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayAction {
     Open,
