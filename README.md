@@ -22,24 +22,52 @@ To render each page with demo data to `target/screenshots/`, run:
 cargo test -p drivecraft screenshots -- --ignored
 ```
 
+## Change from the official OneDrive app
+
+Do these steps in this order:
+
+1. Wait until the official app shows that your files are up to date. Changes that are not uploaded are lost when you unlink the app.
+2. In the settings of the official app, open **Account** and select **Unlink this Mac** (or **Unlink this PC**).
+   After the unlink, a change in its folder does not change OneDrive.
+   If you uninstall the app without this step, macOS can keep an empty, protected folder in `~/Library/CloudStorage`.
+3. Uninstall the official app.
+4. Start DriveCraft and sign in. Select the folders that sync to this computer.
+
+Do not copy or move files from the folder of the official app into the DriveCraft folder. DriveCraft downloads your files from OneDrive.
+A move before the unlink deletes the files on OneDrive, and then DriveCraft deletes them on this computer too.
+When DriveCraft has downloaded your files, you can delete the old folder.
+
 ## How it works
 
 DriveCraft keeps one local folder with real copies of your OneDrive files.
 It works like the official client before "Files On-Demand", or like selective sync in Dropbox.
 
-- The default folder is `~/OneDrive`. If that name is already used, the default is `~/OneDrive (DriveCraft)`.
+- The default folder is `~/DriveCraft/OneDrive`. `~/DriveCraft` holds one folder for each account.
+  No other client uses this name, so the folders of DriveCraft and of other clients never collide.
+  You cannot select `~/DriveCraft` itself as the folder of an account.
 - In **Folders**, each switch selects a folder that syncs to this computer.
   A folder that is off is not on this computer. It stays only on OneDrive.
 - The files in the OneDrive root always sync.
 - A new account starts with all top-level folders on. Switch off the folders that you do not want.
 - When you switch a folder off, the next sync uploads all local changes first. Then it deletes the local copy. The files stay on OneDrive.
+- When you make a new top-level folder in the local folder, it does not sync immediately. **Overview** shows the new folder.
+  Select **Sync** to upload it to OneDrive. Select **Do not sync** to keep it only on this computer.
+  **Settings** shows the folders that are only on this computer. You can sync them there later.
+  Hidden folders (names that start with ".") are not shown.
 - DriveCraft syncs at an interval (10 minutes by default), and when you click **Sync now**.
 - **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted from OneDrive.
   DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list in `snapshot.json` in the settings folder.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
 
-DriveCraft refuses a folder in `~/Library/CloudStorage`, because macOS gives that location to other cloud apps.
-The official OneDrive app makes `~/OneDrive` as a link into that location, so DriveCraft also refuses that link.
+DriveCraft refuses a folder that a different OneDrive app syncs, because two apps that sync the same folder can delete files:
+
+- macOS: all folders in `~/Library/CloudStorage`, and links into that location (for example `~/OneDrive`). macOS gives this location to cloud apps.
+- Windows: the folder of each account in the official OneDrive app.
+- Linux: the `sync_dir` folder of the `onedrive` client.
+
+DriveCraft does the check when you select a folder, and again before each sync.
+
+When a sync finds a file with different content on the two sides, and there is no earlier sync to compare with, DriveCraft keeps the newer version. This occurs at the first sync, after a change of folders, and after **Full resync**.
 
 ## Structure
 
@@ -78,6 +106,9 @@ For an offline build, set `DRIVECRAFT_RCLONE_BIN` to a local rclone binary.
 
 To update rclone, change `RCLONE_VERSION` in `crates/app/build.rs`.
 
+DriveCraft uses its own rclone configuration file, `rclone.conf` in the settings folder. It does not see or change the accounts of your own rclone.
+An earlier version of DriveCraft used the default rclone file. At the first start with the new file, DriveCraft copies the selected account from the default file. The default file does not change.
+
 rclone uses the MIT license. Include the rclone license text in each release package.
 
 ## Build and run
@@ -99,7 +130,7 @@ To run the tests, use `cargo test`.
 | rclone log | `~/Library/Application Support/drivecraft/rclone.log` |
 | File list after the last sync | `~/Library/Application Support/drivecraft/snapshot.json` |
 | rclone session (port and password, mode 600) | `~/Library/Application Support/drivecraft/rclone-session.json` |
-| rclone accounts | The default rclone configuration file |
+| rclone accounts (mode 600) | `~/Library/Application Support/drivecraft/rclone.conf` |
 
 ## Plan
 

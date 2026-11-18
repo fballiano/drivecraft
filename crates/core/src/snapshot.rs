@@ -160,6 +160,21 @@ pub fn diff(
     out
 }
 
+/// Only the files that are in `new` and not in `old`, sorted by path.
+pub fn added(old: &Snapshot, new: &Snapshot, kind: ChangeKind) -> Vec<FileChange> {
+    let mut out: Vec<FileChange> = new
+        .files
+        .keys()
+        .filter(|path| !old.files.contains_key(*path))
+        .map(|path| FileChange {
+            kind,
+            path: path.clone(),
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +210,19 @@ mod tests {
                     path: "d.txt".into()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn added_ignores_changed_and_removed_files() {
+        let old = snap(&[("a.txt", 1), ("b.txt", 2)]);
+        let new = snap(&[("a.txt", 10), ("New/c.txt", 3)]);
+        assert_eq!(
+            added(&old, &new, ChangeKind::Uploaded),
+            vec![FileChange {
+                kind: ChangeKind::Uploaded,
+                path: "New/c.txt".into()
+            }]
         );
     }
 

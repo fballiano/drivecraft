@@ -143,6 +143,9 @@ struct App {
     tree: HashMap<String, DirNode>,
     expanded: HashSet<String>,
     storage: Option<(u64, u64)>,
+    /// The top-level local folders that do not sync yet. Overview asks
+    /// if each one syncs.
+    new_folders: Vec<String>,
 
     syncing: Option<(String, Option<f32>)>,
     last_error: Option<String>,
@@ -201,6 +204,7 @@ impl App {
             tree: HashMap::new(),
             expanded: HashSet::new(),
             storage: None,
+            new_folders: Vec::new(),
             syncing: None,
             last_error: None,
             last_sync: None,
@@ -310,6 +314,7 @@ impl App {
                     }
                 }
                 Event::FilesChanged(changes) => self.add_files(changes),
+                Event::NewLocalFolders(names) => self.new_folders = names,
                 Event::Log(m) => self.add_activity(EntryKind::Info, m),
                 Event::Error(e) => {
                     if e.starts_with("Cannot connect the account") {
@@ -472,11 +477,12 @@ mod preview {
         let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/home/demo".into()));
         let mut s = Settings {
             remote: Some("onedrive".into()),
-            local_dir: home.join("OneDrive"),
+            local_dir: home.join("DriveCraft/OneDrive"),
             ..Settings::default()
         };
         s.pinned = ["Documents".to_string(), "Photos/2026".to_string()].into();
         s.pending_pin = ["Projects".to_string()].into();
+        s.local_only = ["Scratch".to_string()].into();
         s.needs_resync = false;
         app.settings = Some(s);
         app.form_interval = 10;
@@ -485,6 +491,7 @@ mod preview {
         app.remotes = vec!["onedrive".into()];
         app.rclone = Some(("v1.76.0".into(), PathBuf::from("rclone")));
         app.last_sync = Some("15:42".into());
+        app.new_folders = vec!["Band photos".into(), "Recipes".into()];
         let dirs = |v: &[&str]| DirNode::Loaded(v.iter().map(|s| s.to_string()).collect());
         app.tree.insert(
             "".into(),

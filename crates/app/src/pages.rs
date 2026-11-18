@@ -209,6 +209,11 @@ fn overview(app: &mut App, ui: &mut Ui) {
         });
         ui.add_space(14.0);
 
+        if !app.new_folders.is_empty() {
+            new_folders_card(app, ui);
+            ui.add_space(14.0);
+        }
+
         // The local OneDrive folder.
         let Some(s) = app.settings.clone() else {
             return;
@@ -285,6 +290,66 @@ fn overview(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// Asks for each new local folder if it syncs or stays only on this computer.
+fn new_folders_card(app: &mut App, ui: &mut Ui) {
+    let t = Tokens::of(ui);
+    let mut commands = Vec::new();
+    card(ui, |ui| {
+        let title = match app.new_folders.len() {
+            1 => "New folder on this computer".to_string(),
+            n => format!("{n} new folders on this computer"),
+        };
+        card_title(
+            ui,
+            icons::FOLDER_PLUS,
+            &title,
+            Some(
+                "You made these folders in your OneDrive folder. They do not sync yet. \
+                 Select \"Sync\" to upload a folder to OneDrive.",
+            ),
+        );
+        ui.add_space(6.0);
+        let n = app.new_folders.len();
+        for (i, name) in app.new_folders.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.set_min_height(40.0);
+                ui.label(
+                    RichText::new(icons::FOLDER)
+                        .font(icon_font(16.0))
+                        .color(t.icon),
+                );
+                ui.add(
+                    egui::Label::new(RichText::new(name).font(medium(13.5)).color(t.text))
+                        .truncate(),
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if primary(ui, true, &format!("{}  Sync", icons::UPLOAD))
+                        .on_hover_text("Upload this folder to OneDrive and keep it in sync")
+                        .clicked()
+                    {
+                        commands.push(Command::SetKeep {
+                            path: name.clone(),
+                            keep: true,
+                        });
+                    }
+                    if secondary(ui, true, "Do not sync")
+                        .on_hover_text("Keep this folder only on this computer")
+                        .clicked()
+                    {
+                        commands.push(Command::KeepLocalOnly(name.clone()));
+                    }
+                });
+            });
+            if i + 1 < n {
+                widgets::separator(ui);
+            }
+        }
+    });
+    for c in commands {
+        app.engine.send(c);
+    }
 }
 
 fn path_label(ui: &mut Ui, path: &std::path::Path) {
@@ -690,6 +755,25 @@ fn settings(app: &mut App, ui: &mut Ui) {
                     }
                 });
             });
+            for name in &s.local_only {
+                widgets::separator(ui);
+                setting_row(
+                    ui,
+                    name,
+                    "Only on this computer. This folder does not sync.",
+                    |ui, _| {
+                        if secondary(ui, true, &format!("{}  Sync", icons::UPLOAD))
+                            .on_hover_text("Upload this folder to OneDrive and keep it in sync")
+                            .clicked()
+                        {
+                            app.engine.send(Command::SetKeep {
+                                path: name.clone(),
+                                keep: true,
+                            });
+                        }
+                    },
+                );
+            }
         });
         ui.add_space(14.0);
 
@@ -890,9 +974,54 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
                 }
             }
             ui.add_space(28.0);
+            official_app_steps(ui);
+            ui.add_space(18.0);
             if let Some((version, _)) = &app.rclone {
                 ui.label(RichText::new(format!("Uses rclone {version}")).font(regular(11.5)).color(t.text_faint));
             }
+        });
+    });
+}
+
+/// The safe order of steps for a user who stops using the official
+/// OneDrive app. The README has the same steps.
+fn official_app_steps(ui: &mut Ui) {
+    let t = Tokens::of(ui);
+    let unlink = if cfg!(windows) {
+        "Unlink this PC"
+    } else {
+        "Unlink this Mac"
+    };
+    card(ui, |ui| {
+        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.label(
+                RichText::new("Do you use the official OneDrive app?")
+                    .font(semibold(13.5))
+                    .color(t.text),
+            );
+            for (n, step) in [
+                "Wait until the app shows that your files are up to date.".to_string(),
+                format!("In its settings, open Account and select \"{unlink}\"."),
+                "Uninstall the app.".to_string(),
+            ]
+            .iter()
+            .enumerate()
+            {
+                ui.label(
+                    RichText::new(format!("{}. {step}", n + 1))
+                        .font(regular(12.5))
+                        .color(t.text_dim),
+                );
+            }
+            ui.label(
+                RichText::new(
+                    "Do not copy or move files from its folder. \
+                     DriveCraft downloads your files from OneDrive.",
+                )
+                .font(medium(12.5))
+                .color(t.text),
+            );
         });
     });
 }

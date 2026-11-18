@@ -16,6 +16,7 @@ pub const CLOUD_CHECK: &str = "\u{e66e}";
 pub const EXTERNAL_LINK: &str = "\u{e0b9}";
 pub const FOLDER: &str = "\u{e0d7}";
 pub const FOLDER_CHECK: &str = "\u{e32e}";
+pub const FOLDER_PLUS: &str = "\u{e0d9}";
 pub const FOLDER_OPEN: &str = "\u{e247}";
 pub const HOUSE: &str = "\u{e0f5}";
 pub const INFO: &str = "\u{e0f9}";

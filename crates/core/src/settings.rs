@@ -24,6 +24,9 @@ pub struct Settings {
     /// Changes that the next sync applies.
     pub pending_pin: BTreeSet<String>,
     pub pending_unpin: BTreeSet<String>,
+    /// Top-level local folders that the user keeps only on this computer.
+    /// They do not sync, and DriveCraft does not ask about them again.
+    pub local_only: BTreeSet<String>,
     /// True when the next bisync must use --resync.
     pub needs_resync: bool,
 }
@@ -39,24 +42,32 @@ impl Default for Settings {
             pinned: BTreeSet::new(),
             pending_pin: BTreeSet::new(),
             pending_unpin: BTreeSet::new(),
+            local_only: BTreeSet::new(),
             needs_resync: true,
         }
     }
 }
 
-/// `~/OneDrive`, or `~/OneDrive (DriveCraft)` if that name is used.
-/// The official OneDrive app makes `~/OneDrive` as a link to its own folder.
+/// The parent folder of the account folders: `~/DriveCraft`. No other
+/// client uses this name, so the default folders never collide with
+/// them. Each account gets its own folder in it, for example
+/// `~/DriveCraft/OneDrive`. The parent folder itself does not sync.
+pub fn accounts_root(home: &Path) -> PathBuf {
+    home.join("DriveCraft")
+}
+
+/// `~/DriveCraft/OneDrive`.
 fn default_local_dir(home: &Path) -> PathBuf {
-    let plain = home.join("OneDrive");
-    if fs::symlink_metadata(&plain).is_err() {
-        plain
-    } else {
-        home.join("OneDrive (DriveCraft)")
-    }
+    accounts_root(home).join("OneDrive")
 }
 
 /// Refuses local folders that must not hold a synced copy.
 pub fn check_local_dir(dir: &Path, home: &Path) -> Result<()> {
+    check_local_dir_with(dir, home, &crate::other_clients::folders(home))
+}
+
+/// `check_local_dir` with the folders of other clients as a parameter.
+fn check_local_dir_with(dir: &Path, home: &Path, other_clients: &[PathBuf]) -> Result<()> {
     if !dir.is_absolute() {
         bail!("Select a full folder path.");
     }
@@ -68,6 +79,13 @@ pub fn check_local_dir(dir: &Path, home: &Path) -> Result<()> {
             dir.display()
         );
     }
+    if real == resolve(&accounts_root(home)) {
+        bail!(
+            "{} holds one folder for each account. Select a folder inside it, for example {}.",
+            dir.display(),
+            default_local_dir(home).display()
+        );
+    }
     if real.starts_with(real_home.join("Library/CloudStorage")) {
         bail!(
             "{} belongs to a different cloud app (macOS CloudStorage). Select a different folder.",
@@ -76,6 +94,16 @@ pub fn check_local_dir(dir: &Path, home: &Path) -> Result<()> {
     }
     if real.starts_with(resolve(&Settings::dir())) {
         bail!("Select a folder outside the DriveCraft settings folder.");
+    }
+    for other in other_clients {
+        let other_real = resolve(other);
+        if real.starts_with(&other_real) || other_real.starts_with(&real) {
+            bail!(
+                "A different OneDrive app syncs {}. Two apps must not sync the same folder. \
+                 Select a different folder, or unlink the other app first.",
+                other.display()
+            );
+        }
     }
     Ok(())
 }
@@ -149,6 +177,12 @@ impl Settings {
         Self::dir().join("snapshot.json")
     }
 
+    /// The rclone configuration file of DriveCraft. It holds the accounts.
+    /// DriveCraft does not use the default file of the user's own rclone.
+    pub fn rclone_config_file() -> PathBuf {
+        Self::dir().join("rclone.conf")
+    }
+
     pub fn log_file() -> PathBuf {
         Self::dir().join("rclone.log")
     }
@@ -193,6 +227,7 @@ impl Settings {
     /// Records a switch change. The next sync applies it.
     pub fn set_keep(&mut self, path: &str, keep: bool) {
         if keep {
+            self.local_only.remove(path);
             if !self.pending_unpin.remove(path) && !self.pinned.contains(path) {
                 self.pending_pin.insert(path.to_string());
             }
@@ -223,10 +258,56 @@ impl Settings {
         removed
     }
 
+    /// The top-level folders in the local folder that do not sync and are
+    /// not in `local_only`. The user made them on this computer, so the UI
+    /// asks if they sync. Hidden folders and system files are not included.
+    pub fn new_local_folders(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(&self.local_dir) else {
+            return Vec::new();
+        };
+        // macOS can store a name in NFD and OneDrive in NFC, so compare in NFC.
+        let known: BTreeSet<String> = self
+            .pinned
+            .iter()
+            .chain(&self.pending_pin)
+            .chain(&self.pending_unpin)
+            .map(|p| p.split('/').next().unwrap_or(p))
+            .chain(self.local_only.iter().map(String::as_str))
+            .map(nfc)
+            .collect();
+        let mut out: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                let is_dir = e.file_type().ok()?.is_dir(); // Links are not followed.
+                let new = is_dir
+                    && !name.starts_with('.')
+                    && !crate::snapshot::is_junk(&name)
+                    && !known.contains(&nfc(&name));
+                new.then_some(name)
+            })
+            .collect();
+        out.sort_by_key(|n| n.to_lowercase());
+        out
+    }
+
+    /// Removes the `local_only` entries whose local folder no longer exists.
+    /// Returns true when an entry was removed.
+    pub fn prune_local_only(&mut self) -> bool {
+        let before = self.local_only.len();
+        let dir = self.local_dir.clone();
+        self.local_only.retain(|name| dir.join(name).is_dir());
+        self.local_only.len() != before
+    }
+
     /// True for a local file path (relative, "/" separators) that syncs:
     /// a file in the root, or a file in a synced folder.
     pub fn is_synced_path(&self, rel: &str) -> bool {
-        !rel.contains('/') || self.pinned.iter().any(|p| is_strictly_under(rel, p))
+        if !rel.contains('/') {
+            return true;
+        }
+        let rel = nfc(rel);
+        self.pinned.iter().any(|p| is_strictly_under(&rel, &nfc(p)))
     }
 
     /// The rclone filter rules: no system files, then the files in the
@@ -237,12 +318,28 @@ impl Settings {
             out.push_str(&format!("- {junk}\n"));
         }
         out.push_str("+ /*\n");
+        // A name can be NFC on one side and NFD on the other, so a name
+        // that has two forms gets a rule for each form.
         for p in &self.pinned {
-            out.push_str(&format!("+ /{}/**\n", escape_glob(p)));
+            let mut forms = vec![nfc(p), nfd(p)];
+            forms.dedup();
+            for form in forms {
+                out.push_str(&format!("+ /{}/**\n", escape_glob(&form)));
+            }
         }
         out.push_str("- **\n");
         out
     }
+}
+
+fn nfc(s: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    s.nfc().collect()
+}
+
+fn nfd(s: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    s.nfd().collect()
 }
 
 fn is_strictly_under(path: &str, ancestor: &str) -> bool {
@@ -333,11 +430,21 @@ mod tests {
             .unwrap();
 
         assert!(check_local_dir(&home.join("Synced"), &home).is_ok());
+        assert!(check_local_dir(&default_local_dir(&home), &home).is_ok());
+        assert!(
+            check_local_dir(&home.join("DriveCraft"), &home).is_err(),
+            "the parent folder of the account folders"
+        );
         assert!(check_local_dir(&home.join("new/deeper/folder"), &home).is_ok());
         assert!(check_local_dir(&home, &home).is_err());
         assert!(check_local_dir(Path::new("/"), &home).is_err());
         assert!(check_local_dir(Path::new("relative"), &home).is_err());
         assert!(check_local_dir(&home.join("Library/CloudStorage/X"), &home).is_err());
+        let others = [home.join("OneDrive")];
+        let with = |d: &Path| check_local_dir_with(d, &home, &others);
+        assert!(with(&home.join("OneDrive")).is_err(), "the folder of a different app");
+        assert!(with(&home.join("OneDrive/Sub")).is_err(), "inside that folder");
+        assert!(with(&home.join("Data")).is_ok());
         #[cfg(unix)]
         assert!(
             check_local_dir(&link.join("sub"), &home).is_err(),
@@ -354,6 +461,47 @@ mod tests {
         assert!(s.is_synced_path("Docs/Sub/b.txt"));
         assert!(!s.is_synced_path("Docs2/a.txt"));
         assert!(!s.is_synced_path("Music/song.mp3"));
+    }
+
+    #[test]
+    fn new_local_folders_are_top_level_folders_that_do_not_sync() {
+        let dir = std::env::temp_dir().join("drivecraft-new-local-folders");
+        let _ = fs::remove_dir_all(&dir);
+        for d in [
+            "Docs",
+            "Photos/2026",
+            "Mine",
+            "Fresh",
+            "Caf\u{65}\u{301}",
+            ".hidden",
+            "Kept here",
+            "Leaving",
+            "Coming",
+        ] {
+            fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        fs::write(dir.join("file.txt"), "1").unwrap();
+        let mut s = settings(&["Docs", "Photos/2026", "Leaving", "Caf\u{e9}"]);
+        s.local_dir = dir.clone();
+        s.local_only = ["Kept here".to_string(), "Gone".to_string()].into();
+        s.set_keep("Leaving", false);
+        s.set_keep("Coming", true);
+        assert_eq!(s.new_local_folders(), vec!["Fresh", "Mine"]);
+
+        assert!(s.prune_local_only());
+        assert_eq!(s.local_only.iter().collect::<Vec<_>>(), vec!["Kept here"]);
+        s.set_keep("Kept here", true);
+        assert!(s.local_only.is_empty(), "a folder that syncs is not local only");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn names_match_in_nfc_and_nfd() {
+        let s = settings(&["Caf\u{e9}"]);
+        assert!(s.is_synced_path("Caf\u{65}\u{301}/menu.pdf"));
+        let rules = s.filter_rules();
+        assert!(rules.contains("+ /Caf\u{e9}/**\n"));
+        assert!(rules.contains("+ /Caf\u{65}\u{301}/**\n"));
     }
 
     #[test]

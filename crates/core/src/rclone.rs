@@ -112,13 +112,22 @@ pub struct Rclone {
 }
 
 impl Rclone {
-    pub fn start(binary: &Path, log_file: &Path, session_file: &Path) -> Result<Self> {
+    /// Starts rclone with its own configuration file `config`, so that
+    /// DriveCraft does not share accounts with the user's own rclone.
+    pub fn start(
+        binary: &Path,
+        config: &Path,
+        log_file: &Path,
+        session_file: &Path,
+    ) -> Result<Self> {
         stop_previous(session_file);
 
         let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
         let pass = random_token();
         let child = Command::new(binary)
             .arg("rcd")
+            .arg("--config")
+            .arg(config)
             .arg(format!("--rc-addr=127.0.0.1:{port}"))
             .arg("--log-file")
             .arg(log_file)
@@ -204,8 +213,40 @@ fn stop_previous(session_file: &Path) {
     let _ = fs::remove_file(session_file);
 }
 
+/// The default rclone configuration file of the user's own rclone.
+/// `RCLONE_CONFIG` and the other rclone rules apply, because rclone itself
+/// finds the file.
+pub fn default_config_file(binary: &Path) -> Option<PathBuf> {
+    let out = Command::new(binary)
+        .args(["config", "file"])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    // The last line is the path, after a line such as
+    // "Configuration file is stored at:".
+    let text = String::from_utf8_lossy(&out.stdout);
+    let path = text.lines().map(str::trim).rfind(|l| !l.is_empty())?;
+    Some(PathBuf::from(path))
+}
+
+/// The `[name]` section of an rclone configuration file, with its header.
+/// None if the file is encrypted or has no such section.
+pub fn config_section(text: &str, name: &str) -> Option<String> {
+    if text.starts_with("# Encrypted rclone configuration File") {
+        return None;
+    }
+    let header = format!("[{name}]");
+    let mut lines = text.lines().skip_while(|l| l.trim() != header);
+    let mut out = format!("{}\n", lines.next()?.trim());
+    for line in lines.take_while(|l| !l.trim_start().starts_with('[')) {
+        out.push_str(line);
+        out.push('\n');
+    }
+    Some(out)
+}
+
 /// Writes a file that only the current user can read.
-fn write_private(path: &Path, data: &[u8]) -> Result<()> {
+pub fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -219,4 +260,21 @@ fn random_token() -> String {
     (0..4)
         .map(|_| format!("{:016x}", RandomState::new().build_hasher().finish()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_section_returns_only_the_named_section() {
+        let text = "[other]\ntype = drive\n\n[onedrive]\ntype = onedrive\ntoken = {\"a\":1}\ndrive_id = abc\n\n[last]\ntype = s3\n";
+        assert_eq!(
+            config_section(text, "onedrive").unwrap(),
+            "[onedrive]\ntype = onedrive\ntoken = {\"a\":1}\ndrive_id = abc\n\n"
+        );
+        assert_eq!(config_section(text, "last").unwrap(), "[last]\ntype = s3\n");
+        assert!(config_section(text, "missing").is_none());
+        assert!(config_section("# Encrypted rclone configuration File\n\nRCLONE_ENCRYPT_V0:\nxyz", "onedrive").is_none());
+    }
 }

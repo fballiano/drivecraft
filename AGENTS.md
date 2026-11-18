@@ -11,6 +11,8 @@ Keep these unless the user changes them:
 - **Look:** the Craft "Studio" design. The palette in `crates/app/src/theme.rs` comes from PhotoCraft; Inter is the UI font, Lucide the icon set.
 - **rclone is bundled.** `crates/app/build.rs` downloads a pinned release for the target platform and verifies its SHA-256. The app never uses an rclone from `PATH`.
 - **One real local folder with selective sync.** The user rejected a remote mount: no `rclone mount`, no "browse online" option.
+- **Folder layout:** `~/DriveCraft/<account>`, default `~/DriveCraft/OneDrive`. `~/DriveCraft` never syncs. It leaves space for more accounts (more OneDrive accounts, later other providers) and never collides with other clients.
+- **No coexistence with the official client.** People replace it, so DriveCraft does not detect it at run time. It only refuses its folder and explains the change.
 - **Tray icon like OneDrive.** A click opens the normal window. Closing the window hides it to the tray.
 - **Latest dependency versions.** Pin an older version only when a dependency forces it, and say why (for example, `winit` 0.30 matches eframe 0.37).
 
@@ -26,7 +28,9 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 - A **missing local folder** after a previous sync stops the sync (`start_bisync`). Recreating it empty makes bisync delete everything on OneDrive.
 - Before a folder is switched off, a **pre-sync** with the old selection runs; only then is the local copy deleted (`Phase::Pre`, `apply_pending`).
-- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the home folder, the disk root, and the settings folder.
+- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the folders of other OneDrive clients (`other_clients.rs`), the home folder, the disk root, `~/DriveCraft` itself, and the settings folder.
+- A resync uses `resyncMode: "newer"`. rclone's default (`path1`) lets an old local copy overwrite a newer file on OneDrive.
+- DriveCraft uses its own `rclone.conf` in the settings folder (`--config` on every rclone call), never the user's default rclone file.
 - A resync never deletes, so only a resync may create the local folder.
 - Junk files (`.DS_Store` and others in `snapshot::JUNK`) are excluded from sync.
 - Before you delete or overwrite anything on the user's machine, verify it: compare with OneDrive by hash (`rclone check`), and prefer `/usr/bin/trash` to `rm`.
