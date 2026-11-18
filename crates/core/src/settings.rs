@@ -332,6 +332,19 @@ impl Settings {
     }
 }
 
+/// True when `rules` are the filter rules of the last resync. At each
+/// resync, bisync stores the MD5 of the filter file in `<filter file>.md5`.
+/// Later, bisync stops if the file has a different MD5, until the next
+/// resync. `stored_md5` is the content of that file, if it exists.
+pub fn filters_match_last_resync(rules: &str, stored_md5: Option<&str>) -> bool {
+    use md5::{Digest, Md5};
+    let current: String = Md5::digest(rules.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    stored_md5.is_some_and(|stored| stored.trim().eq_ignore_ascii_case(&current))
+}
+
 fn nfc(s: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     s.nfc().collect()
@@ -511,6 +524,26 @@ mod tests {
         let rules = s.filter_rules();
         assert!(rules.contains("+ /Caf\u{e9}/**\n"));
         assert!(rules.contains("+ /Caf\u{65}\u{301}/**\n"));
+    }
+
+    #[test]
+    fn filters_match_the_md5_that_bisync_stores() {
+        let rules = "+ /*\n- **\n";
+        // The MD5 that rclone 1.76 stored for this file in a test resync.
+        let stored = "229bc1c4fbb1f42fdf8fefdb146df559";
+        assert!(filters_match_last_resync(rules, Some(stored)));
+        assert!(filters_match_last_resync(
+            rules,
+            Some("229BC1C4FBB1F42FDF8FEFDB146DF559\n")
+        ));
+        assert!(!filters_match_last_resync(
+            "+ /*\n+ /Docs/**\n- **\n",
+            Some(stored)
+        ));
+        assert!(
+            !filters_match_last_resync(rules, None),
+            "no resync with a filter file yet"
+        );
     }
 
     #[test]

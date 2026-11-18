@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::rclone::{Rclone, config_section, default_config_file, find_binary, write_private};
-use crate::settings::{Settings, check_local_dir, is_safe_relative};
+use crate::settings::{Settings, check_local_dir, filters_match_last_resync, is_safe_relative};
 use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 
 #[derive(Debug)]
@@ -545,7 +545,26 @@ impl Engine {
             fs::create_dir_all(&s.local_dir)
                 .with_context(|| format!("cannot create {}", s.local_dir.display()))?;
         }
-        fs::write(Settings::filters_file(), s.filter_rules())?;
+        let rules = s.filter_rules();
+        fs::write(Settings::filters_file(), &rules)?;
+        // Bisync stops when the filter rules differ from the rules of the
+        // last resync, for example after a DriveCraft update. Then this sync
+        // must be a resync. A resync never deletes. This check comes after
+        // the check of the missing folder: only the user may make a resync
+        // that creates the folder.
+        let mut md5_file = Settings::filters_file().into_os_string();
+        md5_file.push(".md5");
+        let stored = fs::read_to_string(&md5_file).ok();
+        let resync = if !resync && !filters_match_last_resync(&rules, stored.as_deref()) {
+            self.log(
+                "The sync rules changed, so this sync compares all files again. \
+                 It deletes nothing."
+                    .into(),
+            );
+            true
+        } else {
+            resync
+        };
         self.files_before = Some(self.take_files());
         let s = &self.settings;
         let mut params = json!({

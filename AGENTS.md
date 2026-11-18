@@ -37,6 +37,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 ## Gotchas
 
+- **Bisync checks the filter file.** At each resync it stores the MD5 in `filters.txt.md5`; later it aborts ("must run --resync") if the rules differ. `start_bisync` compares the rules first and makes that sync a resync. Keep that check after the missing-folder check.
 - **rclone records no side for deletes.** Per-file activity comes from comparing local file lists (`snapshot.rs`): last sync against before this sync gives uploads; before against after gives downloads.
 - **Unicode forms:** macOS names can be NFD and OneDrive names NFC. `rclone check --files-from` reports such files as missing; confirm with `rclone hashsum quickxor` on both sides.
 - **Cargo build layout:** `OUT_DIR` sits deeper than `target/<profile>/build/<pkg>-<hash>/out`, so the build script passes the rclone path as `DRIVECRAFT_BUILD_RCLONE` and copies nothing next to the binary.
