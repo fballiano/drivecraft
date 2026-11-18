@@ -170,8 +170,6 @@ struct App {
     fatal: Option<String>,
     rclone: Option<(String, PathBuf)>,
     settings: Option<Settings>,
-    /// rclone remotes that are not accounts yet.
-    remotes: Vec<String>,
     connecting: bool,
     /// Per account, by id.
     trees: HashMap<String, Tree>,
@@ -239,7 +237,6 @@ impl App {
             fatal: None,
             rclone: None,
             settings: None,
-            remotes: Vec::new(),
             connecting: false,
             trees: HashMap::new(),
             storage: HashMap::new(),
@@ -346,7 +343,6 @@ impl App {
                 } => self.rclone = Some((rclone_version, rclone_path)),
                 Event::Fatal(e) => self.fatal = Some(e),
                 Event::Settings(s) => self.apply_settings(s),
-                Event::Remotes(r) => self.remotes = r,
                 Event::AccountConnecting => self.connecting = true,
                 Event::Dir {
                     account,
@@ -698,7 +694,6 @@ mod preview {
         );
         app.storage
             .insert("onedrive-2".into(), (2 * 1024u64.pow(3), 1024u64.pow(4)));
-        app.remotes = vec!["onedrive-3".into()];
         app.rclone = Some(("v1.76.0".into(), PathBuf::from("rclone")));
         app.last_sync.insert("onedrive".into(), "15:42".into());
         app.new_folders.insert(
@@ -889,7 +884,6 @@ mod preview {
             if let Some(s) = &mut welcome.settings {
                 s.accounts.clear();
             }
-            welcome.remotes.clear();
             shoot("welcome", welcome, dark);
             // The narrowest window: text must wrap, never run under buttons.
             shoot_sized("overview-narrow", demo_app(Page::Overview), dark, 780.0);

@@ -1343,8 +1343,7 @@ fn add_account(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// The sign-in button, or the progress of a sign-in, and the accounts that
-/// the rclone file of DriveCraft has already.
+/// The sign-in button, or the progress of a sign-in.
 fn sign_in(app: &mut App, ui: &mut Ui) {
     let t = Tokens::of(ui);
     if app.connecting {
@@ -1374,20 +1373,6 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
         app.engine.send(Command::AddAccount {
             provider: "onedrive".into(),
         });
-    }
-    if !app.remotes.is_empty() {
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("Or use an account that is already set up:")
-                .font(regular(12.5))
-                .color(t.text_faint),
-        );
-        ui.add_space(4.0);
-        for r in app.remotes.clone() {
-            if secondary(ui, true, &format!("{}  {r}", icons::CIRCLE_USER)).clicked() {
-                app.engine.send(Command::UseRemote(r));
-            }
-        }
     }
 }
 

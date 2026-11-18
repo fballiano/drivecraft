@@ -25,15 +25,11 @@ use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 
 #[derive(Debug)]
 pub enum Command {
-    RefreshRemotes,
     /// Signs in to a new account of `provider` (for example "onedrive").
     /// rclone opens the login page in the browser.
     AddAccount {
         provider: String,
     },
-    /// Adds an account for a remote that the rclone file of DriveCraft has
-    /// already. See `Event::Remotes`.
-    UseRemote(String),
     /// Signs out: removes the account and its rclone remote. The local
     /// folder and its files stay on this computer.
     RemoveAccount(String),
@@ -100,8 +96,6 @@ pub enum Event {
     /// rclone cannot start. The engine stops.
     Fatal(String),
     Settings(Settings),
-    /// The rclone remotes that are not DriveCraft accounts yet.
-    Remotes(Vec<String>),
     AccountConnecting,
     Dir {
         account: String,
@@ -360,7 +354,7 @@ impl Engine {
 
     fn run(&mut self, rx: Receiver<Command>) {
         self.emit.send(Event::Settings(self.settings.clone()));
-        if let Some(remotes) = self.refresh_remotes() {
+        if let Some(remotes) = self.list_remotes() {
             // An account whose remote is not in the rclone file of DriveCraft
             // cannot sync. The user signs in again; the folder stays.
             let missing: Vec<Account> = self
@@ -403,26 +397,16 @@ impl Engine {
 
     fn handle(&mut self, cmd: Command) {
         match cmd {
-            Command::RefreshRemotes => {
-                self.refresh_remotes();
-            }
             Command::AddAccount { provider } => self.connect_account(provider),
             Command::AccountResult(Ok((id, provider))) => {
-                self.report(|s| s.add_account(id, provider));
-                self.refresh_remotes();
+                if let Err(e) = self.add_account(id.clone(), provider) {
+                    // No remote without an account: the next sign-in starts clean.
+                    let _ = self.rc.call("config/delete", json!({ "name": id }));
+                    self.error(None, format!("Cannot connect the account: {e:#}"));
+                }
             }
             Command::AccountResult(Err(e)) => {
                 self.error(None, format!("Cannot connect the account: {e}"))
-            }
-            Command::UseRemote(id) => {
-                let provider = self
-                    .rc
-                    .call("config/get", json!({ "name": id }))
-                    .ok()
-                    .and_then(|v| v["type"].as_str().map(String::from))
-                    .unwrap_or_else(|| "onedrive".into());
-                self.report(|s| s.add_account(id, provider));
-                self.refresh_remotes();
             }
             Command::RemoveAccount(id) => self.report(|s| s.remove_account(&id)),
             Command::UpdatePrefs(p) => self.update_prefs(p),
@@ -486,9 +470,8 @@ impl Engine {
 
     // ----- accounts -----
 
-    /// Sends the remotes that are not accounts yet to the UI. Returns all
-    /// remotes, or None if rclone fails.
-    fn refresh_remotes(&mut self) -> Option<Vec<String>> {
+    /// The remotes in the rclone file of DriveCraft, or None if rclone fails.
+    fn list_remotes(&mut self) -> Option<Vec<String>> {
         match self.rc.call("config/listremotes", json!({})) {
             Ok(v) => {
                 let remotes: Vec<String> = v["remotes"]
@@ -499,12 +482,6 @@ impl Engine {
                             .collect()
                     })
                     .unwrap_or_default();
-                let free = remotes
-                    .iter()
-                    .filter(|r| self.settings.account(r).is_none())
-                    .cloned()
-                    .collect();
-                self.emit.send(Event::Remotes(free));
                 Some(remotes)
             }
             Err(e) => {
@@ -515,7 +492,7 @@ impl Engine {
     }
 
     fn connect_account(&mut self, provider: String) {
-        let remotes = self.refresh_remotes().unwrap_or_default();
+        let remotes = self.list_remotes().unwrap_or_default();
         // The remote name never shows in the UI: "onedrive", "onedrive-2", …
         let id = (1..)
             .map(|n| match n {
@@ -631,7 +608,6 @@ impl Engine {
                 account.local_dir.display()
             ),
         );
-        self.refresh_remotes();
         Ok(())
     }
 
