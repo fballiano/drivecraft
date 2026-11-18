@@ -24,7 +24,6 @@ pub const LAPTOP: &str = "\u{e1cd}";
 pub const LIST_RESTART: &str = "\u{e452}";
 pub const LOG_OUT: &str = "\u{e10e}";
 pub const PLUS: &str = "\u{e13d}";
-pub const LOG_IN: &str = "\u{e10d}";
 pub const MOON: &str = "\u{e11e}";
 pub const REFRESH: &str = "\u{e145}";
 pub const SETTINGS: &str = "\u{e154}";

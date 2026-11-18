@@ -101,16 +101,6 @@ struct OneAccountSettings {
     blocked_files: BTreeSet<String>,
 }
 
-/// The name that the user sees for a provider.
-pub fn provider_label(provider: &str) -> &str {
-    match provider {
-        "onedrive" => "OneDrive",
-        "drive" => "Google Drive",
-        "dropbox" => "Dropbox",
-        other => other,
-    }
-}
-
 /// The parent folder of the account folders: `~/DriveCraft`. No other
 /// client uses this name, so the default folders never collide with
 /// them. Each account gets its own folder in it, for example
@@ -181,8 +171,8 @@ fn check_local_dir_with(
         let other_real = resolve(other);
         if real.starts_with(&other_real) || other_real.starts_with(&real) {
             bail!(
-                "A different OneDrive app syncs {}. Two apps must not sync the same folder. \
-                 Select a different folder, or unlink the other app first.",
+                "A different cloud app syncs {}. Two apps must not sync the same folder. \
+                 Select a different folder, or sign out of the other app first.",
                 other.display()
             );
         }

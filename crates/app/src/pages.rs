@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use drivecraft_core::{Account, ChangeKind, Command, KeepState, Prefs, Transfer, provider_label};
+use drivecraft_core::{
+    Account, ChangeKind, Command, KeepState, Prefs, Transfer, available_providers, provider_label,
+};
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Rect,
     RichText, ScrollArea, Sense, Ui, pos2, vec2,
@@ -971,6 +973,10 @@ fn account_settings(app: &mut App, ui: &mut Ui, account: &Account) {
                     human_bytes(*total),
                     provider_label(&account.provider)
                 ),
+                None if app.no_storage.contains(&id) => format!(
+                    "{} does not report the storage use.",
+                    provider_label(&account.provider)
+                ),
                 None => "Reading the storage use…".into(),
             };
             ui.add_space(6.0);
@@ -1298,13 +1304,14 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(
-                        "An open source OneDrive client.\nSign in with your Microsoft account to start.",
+                        "An open source client for OneDrive, Dropbox, and Box.\n\
+                         Sign in to your first account to start.",
                     )
                     .font(regular(14.0))
                     .color(t.text_dim),
                 );
                 ui.add_space(22.0);
-                sign_in(app, ui);
+                ui.with_layout(Layout::top_down(Align::Min), |ui| sign_in(app, ui));
                 ui.add_space(28.0);
                 official_app_steps(ui);
                 ui.add_space(18.0);
@@ -1332,18 +1339,19 @@ fn add_account(app: &mut App, ui: &mut Ui) {
             card_title(
                 ui,
                 icons::CLOUD,
-                "OneDrive",
-                Some("A personal or a work account from Microsoft."),
+                "Select your cloud",
+                Some("You sign in on the website of the provider, in your browser."),
             );
-            ui.add_space(10.0);
-            ui.with_layout(Layout::top_down(Align::Min), |ui| sign_in(app, ui));
+            ui.add_space(12.0);
+            sign_in(app, ui);
         });
         ui.add_space(14.0);
         official_app_steps(ui);
     });
 }
 
-/// The sign-in button, or the progress of a sign-in.
+/// One sign-in button for each provider, as many in a row as fit, or the
+/// progress of a sign-in.
 fn sign_in(app: &mut App, ui: &mut Ui) {
     let t = Tokens::of(ui);
     if app.connecting {
@@ -1357,46 +1365,42 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
         });
         return;
     }
-    let button = egui::Button::new(widgets::mixed(
-        &format!("{}  Sign in with Microsoft", icons::LOG_IN),
-        medium(14.0),
-        t.primary_text,
-    ))
-    .fill(t.primary_bg)
-    .corner_radius(CornerRadius::same(RADIUS))
-    .min_size(vec2(260.0, 40.0));
-    if ui
-        .add(button)
-        .on_hover_cursor(CursorIcon::PointingHand)
-        .clicked()
-    {
-        app.engine.send(Command::AddAccount {
-            provider: "onedrive".into(),
+    let gap = 10.0;
+    let providers: Vec<_> = available_providers().collect();
+    let fit = ((ui.available_width() + gap) / (210.0 + gap)) as usize;
+    let columns = fit.clamp(1, providers.len().max(1));
+    let width = ((ui.available_width() - gap * (columns - 1) as f32) / columns as f32).floor();
+    for row in providers.chunks(columns) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for p in row {
+                if widgets::provider_button(ui, width, p.label, p.company).clicked() {
+                    app.engine.send(Command::AddAccount {
+                        provider: p.id.into(),
+                    });
+                }
+            }
         });
+        ui.add_space(gap - ui.spacing().item_spacing.y);
     }
 }
 
-/// The safe order of steps for a user who stops using the official
-/// OneDrive app. The README has the same steps.
+/// The safe order of steps for a user who stops using the official app of
+/// a provider. The README has the same steps.
 fn official_app_steps(ui: &mut Ui) {
     let t = Tokens::of(ui);
-    let unlink = if cfg!(windows) {
-        "Unlink this PC"
-    } else {
-        "Unlink this Mac"
-    };
     card(ui, |ui| {
         ui.with_layout(Layout::top_down(Align::Min), |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.label(
-                RichText::new("Do you use the official OneDrive app?")
+                RichText::new("Do you use the official app of your cloud?")
                     .font(semibold(13.5))
                     .color(t.text),
             );
             for (n, step) in [
-                "Wait until the app shows that your files are up to date.".to_string(),
-                format!("In its settings, open Account and select \"{unlink}\"."),
-                "Uninstall the app.".to_string(),
+                "Wait until the app shows that your files are up to date.",
+                "In its settings, sign out, or unlink this computer.",
+                "Uninstall the app.",
             ]
             .iter()
             .enumerate()
@@ -1410,7 +1414,7 @@ fn official_app_steps(ui: &mut Ui) {
             ui.label(
                 RichText::new(
                     "Do not copy or move files from its folder. \
-                     DriveCraft downloads your files from OneDrive.",
+                     DriveCraft downloads your files from the cloud.",
                 )
                 .font(medium(12.5))
                 .color(t.text),

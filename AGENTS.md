@@ -1,6 +1,6 @@
 # DriveCraft
 
-An open source OneDrive client: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work. It is a local file with notes about the user's machine: it is in `.gitignore`, never commit it (the repository is public).
+An open source client for OneDrive, Dropbox, and Box: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work. It is a local file with notes about the user's machine: it is in `.gitignore`, never commit it (the repository is public).
 
 ## Decisions the user made
 
@@ -12,7 +12,8 @@ Keep these unless the user changes them:
 - **rclone is bundled.** `crates/app/build.rs` downloads a pinned release for the target platform and verifies its SHA-256. The app never uses an rclone from `PATH`.
 - **One real local folder with selective sync.** The user rejected a remote mount: no `rclone mount`, no "browse online" option.
 - **Folder layout:** `~/DriveCraft/<account>`, default `~/DriveCraft/OneDrive`. `~/DriveCraft` never syncs. It leaves space for more accounts (more OneDrive accounts, later other providers) and never collides with other clients.
-- **No coexistence with the official client.** People replace it, so DriveCraft does not detect it at run time. It only refuses its folder and explains the change.
+- **No coexistence with the official clients.** People replace them, so DriveCraft does not detect them at run time. It only refuses their folders and explains the change.
+- **Providers:** only rclone backends with a sign-in in the browser, listed in `providers.rs` (OneDrive, Dropbox, Box; Google Drive is ready but hidden with `available: false`, because rclone's shared Google client ID stops working in 2026 and DriveCraft has no client ID of its own yet). The Add account page and the welcome page show one button for each. Add a provider only after a test with a real account. Providers that need a password or keys (Proton Drive, Nextcloud, S3) come later, with a form.
 - **Tray icon like OneDrive.** A click opens the normal window. Closing the window hides it to the tray.
 - **Dock icon on macOS only while the window is open** (`set_dock_icon` in `main.rs`, `NSApplication.setActivationPolicy`).
 - **The first sync waits for the folder selection.** After a sign-in, `Account::awaiting_selection` blocks every sync of that account until `Command::ConfirmSelection` (**Start sync** on its Folders tab).
@@ -32,7 +33,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 - A **missing local folder** after a previous sync stops the sync (`start_bisync`). Recreating it empty makes bisync delete everything on OneDrive.
 - Before a folder is switched off, a **pre-sync** with the old selection runs; only then is the local copy deleted (`Phase::Pre`, `apply_pending`).
-- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the folders of other OneDrive clients (`other_clients.rs`), the folders of the other accounts (same, inside, or around), the home folder, the disk root, `~/DriveCraft` itself, and the settings folder.
+- `check_local_dir` refuses `~/Library/CloudStorage` (and links into it), the folders of other cloud clients (`other_clients.rs`), the folders of the other accounts (same, inside, or around), the home folder, the disk root, `~/DriveCraft` itself, and the settings folder.
 - A resync uses `resyncMode: "newer"`. rclone's default (`path1`) lets an old local copy overwrite a newer file on OneDrive.
 - DriveCraft uses its own `rclone.conf` in the settings folder (`--config` on every rclone call), never the user's default rclone file.
 - A resync never deletes, so only a resync may create the local folder.
@@ -40,6 +41,8 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - Before you delete or overwrite anything on the user's machine, verify it: compare with OneDrive by hash (`rclone check`), and prefer `/usr/bin/trash` to `rm`.
 
 ## Gotchas
+
+- **Google Docs** have no size and no hash. A local export is not safe in a two-way sync, so Google Drive remotes get `skip_gdocs = true` at `config create` (`providers.rs`).
 
 - **Blocked files stop a bisync.** A provider can refuse a download (OneDrive `malwareDetected`, Google `cannotDownloadAbusiveFile`), and each later bisync stops at the same file. `report_transfers` records such files in `Settings::blocked_files`, and `filter_rules` excludes them; a sync that found new ones starts again. The switch `download_blocked_files` sets `RCLONE_ONEDRIVE_AV_OVERRIDE` and `RCLONE_DRIVE_ACKNOWLEDGE_ABUSE` (`rclone_env`), so a change restarts rclone between syncs.
 - **Bisync checks the filter file.** At each resync it stores the MD5 in `filters-<id>.txt.md5`; later it aborts ("must run --resync") if the rules differ. `start_bisync` compares the rules first and makes that sync a resync. Keep that check after the missing-folder check.
@@ -59,6 +62,10 @@ cargo test -p drivecraft screenshots -- --ignored   # writes target/screenshots/
 ```
 
 The egui_kittest accessibility check fails on unnamed controls. Name them (`labelled_by`, `widget_info`); keep the check on.
+
+## Lint
+
+`.githooks/pre-commit` runs `cargo fmt --check` and `cargo clippy -D warnings`, the same checks as the CI lint job. It runs only when a commit changes `.rs` or Cargo files. Enable it once in each clone with `git config core.hooksPath .githooks`. Fix a failure; do not commit with `--no-verify`.
 
 ## Release
 

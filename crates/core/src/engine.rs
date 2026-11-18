@@ -16,10 +16,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+use crate::providers::provider_label;
 use crate::rclone::{Rclone, config_section, default_config_file, find_binary, write_private};
 use crate::settings::{
     Account, Settings, check_local_dir, filters_match_last_resync, is_safe_relative,
-    new_account_dir, nfc, provider_label,
+    new_account_dir, nfc,
 };
 use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 
@@ -109,7 +110,8 @@ pub enum Event {
         /// The files that are transferring now.
         current: Vec<Transfer>,
     },
-    /// The storage of an account, in bytes.
+    /// The storage of an account, in bytes. None when the provider does
+    /// not report it.
     About {
         account: String,
         used: Option<u64>,
@@ -492,6 +494,13 @@ impl Engine {
     }
 
     fn connect_account(&mut self, provider: String) {
+        let Some(options) = crate::providers::provider(&provider)
+            .filter(|p| p.available)
+            .map(|p| p.options)
+        else {
+            self.error(None, format!("DriveCraft does not support \"{provider}\"."));
+            return;
+        };
         let remotes = self.list_remotes().unwrap_or_default();
         // The remote name never shows in the UI: "onedrive", "onedrive-2", …
         let id = (1..)
@@ -518,6 +527,7 @@ impl Engine {
                 .arg("--config")
                 .arg(&config)
                 .args(["config", "create", &id, &provider])
+                .args(options.iter().flat_map(|(k, v)| [*k, *v]))
                 .stdin(Stdio::null())
                 .output()
                 .map_err(|e| e.to_string())
@@ -701,7 +711,15 @@ impl Engine {
                 used: v["used"].as_u64(),
                 total: v["total"].as_u64(),
             }),
-            Err(e) => self.log(Some(id), format!("Cannot read the storage use: {e:#}")),
+            Err(e) => {
+                // Some providers do not report it. The UI says so.
+                self.emit.send(Event::About {
+                    account: id.to_string(),
+                    used: None,
+                    total: None,
+                });
+                self.log(Some(id), format!("Cannot read the storage use: {e:#}"));
+            }
         }
     }
 

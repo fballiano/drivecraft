@@ -260,6 +260,55 @@ pub fn icon_circle(ui: &mut Ui, icon: &str, diameter: f32, fg: Color32, bg: Colo
 }
 
 /// A thin progress bar. `None` shows a moving bar for unknown progress.
+/// A button that starts the sign-in to a provider: a cloud icon, the name
+/// of the service, and "Sign in with <company>" under it.
+pub fn provider_button(ui: &mut Ui, width: f32, label: &str, company: &str) -> Response {
+    let t = Tokens::of(ui);
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 64.0), Sense::click());
+    resp.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Sign in to {label}"))
+    });
+    let p = ui.painter();
+    let (fill, border) = if resp.hovered() {
+        (t.hover, t.accent_border)
+    } else {
+        (t.card, t.card_border)
+    };
+    p.rect_filled(rect, CornerRadius::same(RADIUS), fill);
+    p.rect_stroke(
+        rect,
+        CornerRadius::same(RADIUS),
+        Stroke::new(1.0, border),
+        egui::StrokeKind::Inside,
+    );
+    let icon_center = pos2(rect.left() + 30.0, rect.center().y);
+    p.circle_filled(icon_center, 16.0, t.accent_soft);
+    p.text(
+        icon_center,
+        Align2::CENTER_CENTER,
+        crate::icons::CLOUD,
+        icon_font(16.0),
+        t.accent,
+    );
+    let clip = p.with_clip_rect(rect.shrink(4.0));
+    let left = rect.left() + 56.0;
+    clip.text(
+        pos2(left, rect.center().y - 9.0),
+        Align2::LEFT_CENTER,
+        label,
+        medium(14.0),
+        t.text,
+    );
+    clip.text(
+        pos2(left, rect.center().y + 10.0),
+        Align2::LEFT_CENTER,
+        format!("Sign in with {company}"),
+        regular(12.0),
+        t.text_dim,
+    );
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 /// A sidebar row for one account: a status dot, the name, and under them a
 /// small storage bar with "used of total".
 pub fn account_item(

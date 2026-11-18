@@ -1,7 +1,7 @@
 # DriveCraft
 
-DriveCraft is an open source OneDrive client for macOS, Windows, and Linux. It syncs one or more accounts.
-It uses [rclone](https://rclone.org) to connect to OneDrive.
+DriveCraft is an open source client for OneDrive, Dropbox, and Box, on macOS, Windows, and Linux. It syncs one or more accounts.
+It uses [rclone](https://rclone.org) to connect to the cloud.
 The UI uses [egui](https://github.com/emilk/egui).
 
 Status: early prototype (phase 1).
@@ -24,52 +24,61 @@ To render each page with demo data to `target/screenshots/`, run:
 cargo test -p drivecraft screenshots -- --ignored
 ```
 
-## Change from the official OneDrive app
+## Change from the official app
 
 Do these steps in this order:
 
 1. Wait until the official app shows that your files are up to date. Changes that are not uploaded are lost when you unlink the app.
-2. In the settings of the official app, open **Account** and select **Unlink this Mac** (or **Unlink this PC**).
-   After the unlink, a change in its folder does not change OneDrive.
+2. In the settings of the official app, sign out or unlink this computer:
+   - OneDrive: open **Account** and select **Unlink this Mac** (or **Unlink this PC**).
+   - Dropbox: open **Account** and select **Unlink**.
+   - Box Drive: select **Sign out**.
+
+   After the unlink, a change in its folder does not change the cloud.
    If you uninstall the app without this step, macOS can keep an empty, protected folder in `~/Library/CloudStorage`.
 3. Uninstall the official app.
 4. Start DriveCraft and sign in. Select the folders that sync to this computer.
 
-Do not copy or move files from the folder of the official app into the DriveCraft folder. DriveCraft downloads your files from OneDrive.
-A move before the unlink deletes the files on OneDrive, and then DriveCraft deletes them on this computer too.
+Do not copy or move files from the folder of the official app into the DriveCraft folder. DriveCraft downloads your files from the cloud.
+A move before the unlink deletes the files in the cloud, and then DriveCraft deletes them on this computer too.
 When DriveCraft has downloaded your files, you can delete the old folder.
 
 ## How it works
 
 DriveCraft keeps one local folder for each account, with real copies of your files.
-It works like the official client before "Files On-Demand", or like selective sync in Dropbox.
+It works like the official OneDrive client before "Files On-Demand", or like selective sync in Dropbox.
 
-- `~/DriveCraft` holds one folder for each account. The first account gets `~/DriveCraft/OneDrive`, the next one `~/DriveCraft/OneDrive 2`. You can rename an account; its folder does not change.
+- `~/DriveCraft` holds one folder for each account. The folder has the name of the provider: the first OneDrive account gets `~/DriveCraft/OneDrive`, the next one `~/DriveCraft/OneDrive 2`, a Dropbox account `~/DriveCraft/Dropbox`. You can rename an account; its folder does not change.
   No other client uses this name, so the folders of DriveCraft and of other clients never collide.
   You cannot select `~/DriveCraft` itself as the folder of an account. The folders of two accounts must not be the same, and one must not be inside the other.
 - In **Folders**, each switch selects a folder that syncs to this computer.
-  A folder that is off is not on this computer. It stays only on OneDrive.
-- The files in the OneDrive root always sync.
+  A folder that is off is not on this computer. It stays only online.
+- The files in the root of the account always sync.
 - A new account starts with all top-level folders on. DriveCraft does not sync it yet: it opens **Folders** of the account.
-  Switch off the folders that you want only on OneDrive, then click **Start sync**. Only then does the first download start.
-- When you switch a folder off, the next sync uploads all local changes first. Then it deletes the local copy. The files stay on OneDrive.
+  Switch off the folders that you want only online, then click **Start sync**. Only then does the first download start.
+- When you switch a folder off, the next sync uploads all local changes first. Then it deletes the local copy. The files stay online.
 - When you make a new top-level folder in the local folder, it does not sync immediately. **Overview** shows the new folder.
-  Select **Sync** to upload it to OneDrive. Select **Do not sync** to keep it only on this computer.
+  Select **Sync** to upload it. Select **Do not sync** to keep it only on this computer.
   The **Account** tab shows the folders that are only on this computer. You can sync them there later.
   Hidden folders (names that start with ".") are not shown.
 - DriveCraft syncs each account at an interval (10 minutes by default), and when you click **Sync now**. Only one sync runs at a time; the accounts take turns.
 - **Sign out** removes the account from DriveCraft. Its folder and the files in it stay on this computer.
-- **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted from OneDrive.
+- **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted online.
   DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list of each account in `snapshot-<id>.json` in the settings folder.
-- OneDrive blocks the download of files that it marks as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
-  To download these files anyway, turn on **Settings > Sync > Download blocked files**. The same switch covers Google Drive, which blocks files in the same way. Scan such files before you open them.
+- OneDrive and Google Drive block the download of files that they mark as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
+  To download these files anyway, turn on **Settings > Sync > Download blocked files**. Scan such files before you open them.
+- Some providers do not report the storage use. Then the **Account** tab says so.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
 
-DriveCraft refuses a folder that a different OneDrive app syncs, because two apps that sync the same folder can delete files:
+DriveCraft refuses a folder that a different cloud app syncs, because two apps that sync the same folder can delete files:
 
-- macOS: all folders in `~/Library/CloudStorage`, and links into that location (for example `~/OneDrive`). macOS gives this location to cloud apps.
+- macOS: all folders in `~/Library/CloudStorage`, and links into that location (for example `~/OneDrive`). macOS gives this location to the apps of OneDrive, Google Drive, Dropbox, and Box.
 - Windows: the folder of each account in the official OneDrive app.
 - Linux: the `sync_dir` folder of the `onedrive` client.
+- All systems: the folders of the Dropbox app (from its `info.json`).
+- macOS and Windows: `~/Box` (Box Drive) and `~/Google Drive` (the old Google app).
+
+Google Drive for desktop on Windows uses a separate drive letter (for example `G:`). DriveCraft refuses the root of that drive, but not yet a folder inside it.
 
 DriveCraft does the check when you select a folder, and again before each sync.
 
@@ -177,8 +186,13 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 
 `<id>` is the rclone remote of the account: `onedrive`, `onedrive-2`, and so on. Settings from a version with one account change to the new format at the first start. The files of that account get the new names, so no full resync is necessary.
 
+## Google Drive
+
+Google Drive is not available yet. rclone's shared Google sign-in stops working during 2026.
+DriveCraft needs a Google sign-in of its own first. The code for Google Drive is ready (`crates/core/src/providers.rs`).
+
 ## Plan
 
-- Phase 1 (this version): one or more accounts, one local folder for each account with selective sync, sync at an interval.
+- Phase 1 (this version): one or more accounts of OneDrive, Dropbox, and Box; one local folder for each account with selective sync; sync at an interval.
 - Phase 2: tray icon, immediate sync when a local file changes, notifications, a conflict window.
 - Phase 3: integration with Finder and Explorer (status icons, placeholder files).

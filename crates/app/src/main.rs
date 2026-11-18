@@ -174,6 +174,8 @@ struct App {
     /// Per account, by id.
     trees: HashMap<String, Tree>,
     storage: HashMap<String, (u64, u64)>,
+    /// The accounts whose provider does not report the storage use.
+    no_storage: HashSet<String>,
     /// The top-level local folders that do not sync yet. Overview asks
     /// if each one syncs.
     new_folders: HashMap<String, Vec<String>>,
@@ -240,6 +242,7 @@ impl App {
             connecting: false,
             trees: HashMap::new(),
             storage: HashMap::new(),
+            no_storage: HashSet::new(),
             new_folders: HashMap::new(),
             errors: HashMap::new(),
             last_sync: HashMap::new(),
@@ -363,11 +366,16 @@ impl App {
                     account,
                     used,
                     total,
-                } => {
-                    if let Some(u) = used.zip(total) {
+                } => match used.zip(total) {
+                    Some(u) => {
+                        self.no_storage.remove(&account);
                         self.storage.insert(account, u);
                     }
-                }
+                    None => {
+                        self.storage.remove(&account);
+                        self.no_storage.insert(account);
+                    }
+                },
                 Event::SyncProgress {
                     account,
                     text,
@@ -434,6 +442,7 @@ impl App {
         let ids: HashSet<String> = s.accounts.iter().map(|a| a.id.clone()).collect();
         self.trees.retain(|k, _| ids.contains(k));
         self.storage.retain(|k, _| ids.contains(k));
+        self.no_storage.retain(|k| ids.contains(k));
         self.new_folders.retain(|k, _| ids.contains(k));
         self.errors.retain(|k, _| ids.contains(k));
         if let Page::Account(id) = &self.page
@@ -682,8 +691,17 @@ mod preview {
             awaiting_selection: true,
             ..Account::default()
         };
+        let dropbox = Account {
+            id: "dropbox".into(),
+            name: "Dropbox".into(),
+            provider: "dropbox".into(),
+            local_dir: home.join("DriveCraft/Dropbox"),
+            pinned: ["Camera Uploads".to_string()].into(),
+            needs_resync: false,
+            ..Account::default()
+        };
         app.settings = Some(Settings {
-            accounts: vec![personal, work],
+            accounts: vec![personal, work, dropbox],
             ..Settings::default()
         });
         app.form_interval = 10;
@@ -694,6 +712,11 @@ mod preview {
         );
         app.storage
             .insert("onedrive-2".into(), (2 * 1024u64.pow(3), 1024u64.pow(4)));
+        app.storage.insert(
+            "dropbox".into(),
+            (1536 * 1024u64.pow(2), 2 * 1024u64.pow(3)),
+        );
+        app.last_sync.insert("dropbox".into(), "15:38".into());
         app.rclone = Some(("v1.76.0".into(), PathBuf::from("rclone")));
         app.last_sync.insert("onedrive".into(), "15:42".into());
         app.new_folders.insert(
