@@ -25,8 +25,7 @@ pub fn folders(home: &Path) -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn windows_app_folders() -> Vec<PathBuf> {
-    let Ok(accounts) =
-        windows_registry::CURRENT_USER.open(r"Software\Microsoft\OneDrive\Accounts")
+    let Ok(accounts) = windows_registry::CURRENT_USER.open(r"Software\Microsoft\OneDrive\Accounts")
     else {
         return Vec::new();
     };

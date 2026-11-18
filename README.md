@@ -109,7 +109,7 @@ To update rclone, change `RCLONE_VERSION` in `crates/app/build.rs`.
 DriveCraft uses its own rclone configuration file, `rclone.conf` in the settings folder. It does not see or change the accounts of your own rclone.
 An earlier version of DriveCraft used the default rclone file. At the first start with the new file, DriveCraft copies the selected account from the default file. The default file does not change.
 
-rclone uses the MIT license. Include the rclone license text in each release package.
+rclone uses the MIT license. Each release package includes the rclone license text (`licenses/rclone.txt`).
 
 ## Build and run
 
@@ -120,6 +120,32 @@ You need Rust 1.95 or later.
 3. Log in to Microsoft in the browser window that opens.
 
 To run the tests, use `cargo test`.
+
+## Download and release
+
+GitHub Actions builds DriveCraft for each push to `main` (`.github/workflows/build.yml`):
+
+| Platform | Package |
+|---|---|
+| macOS (Apple silicon, Intel) | `DriveCraft.app` in a zip file |
+| Windows (x64, Arm) | a zip file with `DriveCraft.exe` and `rclone.exe` |
+| Linux (x64, Arm) | a `tar.gz` file with `drivecraft` and `rclone` |
+
+The packages are in the artifacts of each workflow run.
+To make a release, push a tag such as `v0.1.0`. The workflow then makes a draft release with all packages. Check the draft, then publish it.
+
+The macOS app has no Developer ID signature yet. On the first start, macOS refuses to open it. Open it from **System Settings > Privacy & Security** with **Open Anyway**.
+
+To make a package on your computer, run `scripts/package.sh <target> <name> <version>`, for example:
+
+```
+scripts/package.sh aarch64-apple-darwin macos-arm64 0.1.0
+```
+
+## License
+
+DriveCraft is available under the MIT license or the Apache License 2.0, at your choice (`LICENSE-MIT`, `LICENSE-APACHE`).
+`ATTRIBUTION.md` lists the parts that come from other projects, with their licenses.
 
 ## Files
 

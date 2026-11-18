@@ -442,8 +442,14 @@ mod tests {
         assert!(check_local_dir(&home.join("Library/CloudStorage/X"), &home).is_err());
         let others = [home.join("OneDrive")];
         let with = |d: &Path| check_local_dir_with(d, &home, &others);
-        assert!(with(&home.join("OneDrive")).is_err(), "the folder of a different app");
-        assert!(with(&home.join("OneDrive/Sub")).is_err(), "inside that folder");
+        assert!(
+            with(&home.join("OneDrive")).is_err(),
+            "the folder of a different app"
+        );
+        assert!(
+            with(&home.join("OneDrive/Sub")).is_err(),
+            "inside that folder"
+        );
         assert!(with(&home.join("Data")).is_ok());
         #[cfg(unix)]
         assert!(
@@ -491,7 +497,10 @@ mod tests {
         assert!(s.prune_local_only());
         assert_eq!(s.local_only.iter().collect::<Vec<_>>(), vec!["Kept here"]);
         s.set_keep("Kept here", true);
-        assert!(s.local_only.is_empty(), "a folder that syncs is not local only");
+        assert!(
+            s.local_only.is_empty(),
+            "a folder that syncs is not local only"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

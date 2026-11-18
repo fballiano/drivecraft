@@ -1,6 +1,6 @@
 # DriveCraft
 
-An open source OneDrive client: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work.
+An open source OneDrive client: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work. It is a local file with notes about the user's machine: it is in `.gitignore`, never commit it (the repository is public).
 
 ## Decisions the user made
 
@@ -53,6 +53,12 @@ cargo test -p drivecraft screenshots -- --ignored   # writes target/screenshots/
 ```
 
 The egui_kittest accessibility check fails on unnamed controls. Name them (`labelled_by`, `widget_info`); keep the check on.
+
+## Release
+
+- `.github/workflows/build.yml` lints and tests on three platforms, then packages six targets with `scripts/package.sh`. A `v*` tag makes a draft release.
+- The macOS bundle puts rclone in `Contents/Resources` (`find_binary` looks there) and has `LSUIElement`. Update `crates/app/assets/DriveCraft.icns` with the `app_icon_set` test in `art.rs` when the app icon changes.
+- Each package includes `LICENSE-MIT`, `LICENSE-APACHE`, `ATTRIBUTION.md`, and the rclone, Inter, and Lucide licenses.
 
 ## Writing
 

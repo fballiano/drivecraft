@@ -275,6 +275,12 @@ mod tests {
         );
         assert_eq!(config_section(text, "last").unwrap(), "[last]\ntype = s3\n");
         assert!(config_section(text, "missing").is_none());
-        assert!(config_section("# Encrypted rclone configuration File\n\nRCLONE_ENCRYPT_V0:\nxyz", "onedrive").is_none());
+        assert!(
+            config_section(
+                "# Encrypted rclone configuration File\n\nRCLONE_ENCRYPT_V0:\nxyz",
+                "onedrive"
+            )
+            .is_none()
+        );
     }
 }

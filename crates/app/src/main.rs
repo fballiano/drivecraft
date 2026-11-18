@@ -1,6 +1,9 @@
 //! The DriveCraft desktop UI. This is a thin egui layer on top of
 //! `drivecraft-core`. It holds no sync logic. It only sends commands.
 
+// A release build on Windows opens no console window.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod art;
 mod icons;
 mod pages;

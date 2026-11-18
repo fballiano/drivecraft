@@ -773,7 +773,11 @@ impl Engine {
 /// in the default rclone file. On the first start with the new file, this
 /// copies the selected account into it. The default file does not change.
 /// Returns the name of the copied account.
-fn copy_old_account(binary: &std::path::Path, settings: &Settings, config: &std::path::Path) -> Option<String> {
+fn copy_old_account(
+    binary: &std::path::Path,
+    settings: &Settings,
+    config: &std::path::Path,
+) -> Option<String> {
     if config.exists() {
         return None;
     }
