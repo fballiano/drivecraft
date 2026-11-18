@@ -1,0 +1,29 @@
+[package]
+name = "drivecraft"
+description = "An open source OneDrive client on top of rclone."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+drivecraft-core.workspace = true
+eframe = { version = "0.37", features = ["persistence"] }
+jiff = "1"
+resvg = "0.50"
+rfd = "0.18"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = "0.26"
+
+# The same winit version as eframe. DriveCraft only uses it to set the
+# macOS activation policy (no Dock icon).
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", default-features = false }
+
+[build-dependencies]
+sha2 = "0.11"
+ureq = "3"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
