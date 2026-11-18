@@ -350,7 +350,7 @@ pub fn filters_match_last_resync(rules: &str, stored_md5: Option<&str>) -> bool 
     stored_md5.is_some_and(|stored| stored.trim().eq_ignore_ascii_case(&current))
 }
 
-fn nfc(s: &str) -> String {
+pub(crate) fn nfc(s: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     s.nfc().collect()
 }

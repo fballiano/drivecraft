@@ -7,6 +7,6 @@ pub mod rclone;
 pub mod settings;
 pub mod snapshot;
 
-pub use engine::{Command, EngineHandle, Event, Notify, Prefs, spawn};
+pub use engine::{Command, EngineHandle, Event, Notify, Prefs, Transfer, spawn};
 pub use settings::{KeepState, Settings};
 pub use snapshot::{ChangeKind, FileChange};

@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use drivecraft_core::{ChangeKind, Command, KeepState, Prefs, Settings};
+use drivecraft_core::{ChangeKind, Command, KeepState, Prefs, Settings, Transfer};
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Rect,
     RichText, ScrollArea, Sense, Ui, pos2, vec2,
@@ -755,6 +755,10 @@ fn activity(app: &mut App, ui: &mut Ui) {
         }
     });
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        if let Some((text, fraction)) = &app.syncing {
+            syncing_now_card(ui, text, *fraction, &app.current);
+            ui.add_space(14.0);
+        }
         card(ui, |ui| {
             if app.activity.is_empty() {
                 ui.label(
@@ -771,6 +775,75 @@ fn activity(app: &mut App, ui: &mut Ui) {
                 }
             }
         });
+    });
+}
+
+/// The sync that runs now: its progress, and the files that transfer now.
+/// Finished files go to the list below at once.
+fn syncing_now_card(ui: &mut Ui, text: &str, fraction: Option<f32>, current: &[Transfer]) {
+    let t = Tokens::of(ui);
+    card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.add(egui::Spinner::new().size(15.0).color(t.accent));
+            ui.label(
+                RichText::new("Syncing now")
+                    .font(semibold(14.0))
+                    .color(t.text),
+            );
+        });
+        ui.add_space(2.0);
+        ui.label(RichText::new(text).font(regular(12.5)).color(t.text_dim));
+        ui.add_space(8.0);
+        widgets::progress(ui, fraction);
+        if !current.is_empty() {
+            ui.add_space(6.0);
+        }
+        for tr in current.iter().take(8) {
+            let (icon, action) = match tr.kind {
+                ChangeKind::Uploaded => (icons::UPLOAD, "Uploading"),
+                _ => (icons::DOWNLOAD, "Downloading"),
+            };
+            let (folder, name) = match tr.path.rsplit_once('/') {
+                Some((folder, name)) => (folder, name),
+                None => ("OneDrive", tr.path.as_str()),
+            };
+            widgets::text_and_actions(
+                ui,
+                Align::Center,
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(40.0);
+                        ui.label(RichText::new(icon).font(icon_font(15.0)).color(t.accent));
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 1.0;
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(name).font(medium(13.0)).color(t.text),
+                                )
+                                .truncate(),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("{action} · in {folder}"))
+                                        .font(regular(11.5))
+                                        .color(t.text_faint),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    });
+                },
+                |ui, ()| {
+                    if let Some(f) = tr.fraction {
+                        ui.label(
+                            RichText::new(format!("{:.0}%", f * 100.0))
+                                .font(regular(12.0))
+                                .color(t.text_faint),
+                        );
+                    }
+                },
+            );
+        }
     });
 }
 

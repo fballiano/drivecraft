@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
-use drivecraft_core::{ChangeKind, Command, EngineHandle, Event, FileChange, Settings};
+use drivecraft_core::{ChangeKind, Command, EngineHandle, Event, FileChange, Settings, Transfer};
 use eframe::egui::{self, ViewportCommand};
 
 use crate::tray::{Tray, TrayAction, TrayState};
@@ -150,6 +150,8 @@ struct App {
     new_folders: Vec<String>,
 
     syncing: Option<(String, Option<f32>)>,
+    /// The files that transfer now, during a sync.
+    current: Vec<Transfer>,
     last_error: Option<String>,
     last_sync: Option<String>,
     activity: VecDeque<Entry>,
@@ -210,6 +212,7 @@ impl App {
             storage: None,
             new_folders: Vec::new(),
             syncing: None,
+            current: Vec::new(),
             last_error: None,
             last_sync: None,
             activity: VecDeque::new(),
@@ -309,9 +312,17 @@ impl App {
                     self.tree.insert(path, node);
                 }
                 Event::About { used, total } => self.storage = used.zip(total),
-                Event::SyncProgress { text, fraction } => self.syncing = Some((text, fraction)),
+                Event::SyncProgress {
+                    text,
+                    fraction,
+                    current,
+                } => {
+                    self.syncing = Some((text, fraction));
+                    self.current = current;
+                }
                 Event::SyncFinished { ok, message } => {
                     self.syncing = None;
+                    self.current.clear();
                     if ok {
                         self.last_error = None;
                         self.last_sync = Some(now_hhmm());
@@ -656,6 +667,21 @@ mod preview {
             shoot_sized("overview-narrow", demo_app(Page::Overview), dark, 780.0);
             shoot_sized("settings-narrow", demo_app(Page::Settings), dark, 780.0);
             shoot("activity", demo_app(Page::Activity), dark);
+            let mut busy = demo_app(Page::Activity);
+            busy.syncing = Some(("96 of 2294 files · 376.0 of 1752.0 MB".into(), Some(0.21)));
+            busy.current = vec![
+                Transfer {
+                    kind: ChangeKind::Downloaded,
+                    path: "Personali/2019/contract.zip".into(),
+                    fraction: Some(0.64),
+                },
+                Transfer {
+                    kind: ChangeKind::Uploaded,
+                    path: "notes.md".into(),
+                    fraction: None,
+                },
+            ];
+            shoot("activity-syncing", busy, dark);
             shoot("settings", demo_app(Page::Settings), dark);
             let mut welcome = demo_app(Page::Overview);
             if let Some(s) = &mut welcome.settings {

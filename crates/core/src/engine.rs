@@ -1,6 +1,7 @@
 //! The engine runs on its own thread. It owns rclone and the settings.
 //! The UI sends `Command`s and receives `Event`s. The UI never calls rclone.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command as Process, Stdio};
@@ -13,7 +14,9 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::rclone::{Rclone, config_section, default_config_file, find_binary, write_private};
-use crate::settings::{Settings, check_local_dir, filters_match_last_resync, is_safe_relative};
+use crate::settings::{
+    Settings, check_local_dir, filters_match_last_resync, is_safe_relative, nfc,
+};
 use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 
 #[derive(Debug)]
@@ -82,6 +85,8 @@ pub enum Event {
     SyncProgress {
         text: String,
         fraction: Option<f32>,
+        /// The files that are transferring now.
+        current: Vec<Transfer>,
     },
     /// The storage of the OneDrive account, in bytes.
     About {
@@ -206,6 +211,11 @@ struct Engine {
     uploads_reported: bool,
     /// The number of files that this sync changed.
     changed_count: usize,
+    /// Live reports during a sync (`report_transfers`): the transfers seen,
+    /// the paths reported (NFC), and the files with an error reported.
+    live_seen: HashSet<String>,
+    live_paths: HashSet<String>,
+    live_errors: HashSet<String>,
     last_sync: Option<Instant>,
     /// False after a failed sync. Then pending changes wait for the interval.
     last_ok: bool,
@@ -254,6 +264,9 @@ impl Engine {
             files_before: None,
             uploads_reported: false,
             changed_count: 0,
+            live_seen: HashSet::new(),
+            live_paths: HashSet::new(),
+            live_errors: HashSet::new(),
             last_sync: None,
             last_ok: true,
             new_folders: None,
@@ -531,6 +544,9 @@ impl Engine {
         };
         self.uploads_reported = false;
         self.changed_count = 0;
+        self.live_seen.clear();
+        self.live_paths.clear();
+        self.live_errors.clear();
         if let Err(e) = self.start_bisync(phase) {
             self.last_sync = Some(Instant::now());
             self.finish(false, format!("{e:#}"));
@@ -605,6 +621,7 @@ impl Engine {
         self.emit.send(Event::SyncProgress {
             text: text.into(),
             fraction: None,
+            current: Vec::new(),
         });
         Ok(())
     }
@@ -620,12 +637,15 @@ impl Engine {
                 return;
             }
         };
-        if !status["finished"].as_bool().unwrap_or(false) {
+        let finished = status["finished"].as_bool().unwrap_or(false);
+        self.report_transfers(id);
+        if !finished {
             if let Ok(st) = self
                 .rc
                 .call("core/stats", json!({ "group": format!("job/{id}") }))
             {
-                self.emit.send(progress(&st));
+                let remote = self.remote_fs().unwrap_or_default();
+                self.emit.send(progress(&st, &remote));
             }
             return;
         }
@@ -693,6 +713,36 @@ impl Engine {
         )
     }
 
+    /// Reports the files that the running job copied since the last call,
+    /// and the files that it could not copy. rclone names the source and the
+    /// destination of each copy, so the direction is known. Deletes come
+    /// only from the file lists, in `report_changes`.
+    fn report_transfers(&mut self, id: i64) {
+        let Ok(v) = self
+            .rc
+            .call("core/transferred", json!({ "group": format!("job/{id}") }))
+        else {
+            return;
+        };
+        let remote = self.remote_fs().unwrap_or_default();
+        let live = live_transfers(&v, &remote, &mut self.live_seen);
+        for (name, err) in live.errors {
+            if self.live_errors.insert(name.clone()) {
+                self.error(transfer_error_text(&name, &err));
+            }
+        }
+        let mut changes: Vec<FileChange> = live
+            .changes
+            .into_iter()
+            .filter(|c| self.live_paths.insert(nfc(&c.path)))
+            .collect();
+        if !changes.is_empty() {
+            changes.sort_by(|a, b| a.path.cmp(&b.path));
+            self.changed_count += changes.len();
+            self.emit.send(Event::FilesChanged(changes));
+        }
+    }
+
     /// Reports the files that the finished job changed, and keeps the new
     /// list for the next sync.
     fn report_changes(&mut self) {
@@ -727,6 +777,11 @@ impl Engine {
             ChangeKind::Downloaded,
             ChangeKind::DeletedHere,
         ));
+        // The copies that `report_transfers` reported already.
+        changes.retain(|c| {
+            matches!(c.kind, ChangeKind::DeletedHere | ChangeKind::DeletedOnline)
+                || !self.live_paths.contains(&nfc(&c.path))
+        });
         if let Err(e) = after.save(&Settings::snapshot_file()) {
             self.error(format!("Cannot save the file list: {e:#}"));
         }
@@ -824,7 +879,70 @@ fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn progress(st: &Value) -> Event {
+/// A file that is transferring now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transfer {
+    /// `Downloaded` for a download, `Uploaded` for an upload.
+    pub kind: ChangeKind,
+    pub path: String,
+    /// Done, from 0 to 1, when rclone knows it.
+    pub fraction: Option<f32>,
+}
+
+/// The copies and the failed copies in an rclone `core/transferred` answer.
+#[derive(Debug, Default, PartialEq)]
+struct LiveTransfers {
+    changes: Vec<FileChange>,
+    /// The path and the rclone error of each failed copy.
+    errors: Vec<(String, String)>,
+}
+
+/// Reads the transfers that are not in `seen`, and adds them to it. A copy
+/// from `remote_fs` (for example "onedrive:") is a download.
+fn live_transfers(v: &Value, remote_fs: &str, seen: &mut HashSet<String>) -> LiveTransfers {
+    let mut out = LiveTransfers::default();
+    for t in v["transferred"].as_array().into_iter().flatten() {
+        // `checked` entries compare files; they copy nothing.
+        if t["checked"].as_bool().unwrap_or(false) {
+            continue;
+        }
+        let Some(name) = t["name"].as_str() else {
+            continue;
+        };
+        let key = format!("{}|{}|{}", t["group"], name, t["started_at"]);
+        if !seen.insert(key) {
+            continue;
+        }
+        let error = t["error"].as_str().unwrap_or_default();
+        if !error.is_empty() {
+            out.errors.push((name.to_string(), error.to_string()));
+            continue;
+        }
+        let kind = if t["srcFs"].as_str() == Some(remote_fs) {
+            ChangeKind::Downloaded
+        } else {
+            ChangeKind::Uploaded
+        };
+        out.changes.push(FileChange {
+            kind,
+            path: name.to_string(),
+        });
+    }
+    out
+}
+
+fn transfer_error_text(name: &str, error: &str) -> String {
+    if error.contains("malwareDetected") {
+        format!(
+            "OneDrive marks \"{name}\" as infected with a virus, so DriveCraft does not \
+             download it. Check the file on the OneDrive website."
+        )
+    } else {
+        format!("Cannot sync \"{name}\": {error}")
+    }
+}
+
+fn progress(st: &Value, remote_fs: &str) -> Event {
     let n = |k: &str| st[k].as_u64().unwrap_or(0);
     let (done, total) = (n("bytes"), n("totalBytes"));
     let files = n("totalTransfers");
@@ -840,5 +958,72 @@ fn progress(st: &Value) -> Event {
         )
     };
     let fraction = (total > 0).then(|| (done as f64 / total as f64).clamp(0.0, 1.0) as f32);
-    Event::SyncProgress { text, fraction }
+    let current = st["transferring"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| {
+            Some(Transfer {
+                kind: if t["srcFs"].as_str() == Some(remote_fs) {
+                    ChangeKind::Downloaded
+                } else {
+                    ChangeKind::Uploaded
+                },
+                path: t["name"].as_str()?.to_string(),
+                fraction: t["percentage"]
+                    .as_f64()
+                    .map(|p| (p / 100.0).clamp(0.0, 1.0) as f32),
+            })
+        })
+        .collect();
+    Event::SyncProgress {
+        text,
+        fraction,
+        current,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The shape of a real rclone 1.76 answer during a bisync.
+    #[test]
+    fn live_transfers_reads_direction_errors_and_skips_seen_entries() {
+        let v = json!({ "transferred": [
+            { "name": "Docs/a.pdf", "error": "", "checked": false, "group": "job/6",
+              "started_at": "2026-11-18T23:08:42Z", "srcFs": "onedrive:",
+              "dstFs": "/Users/demo/DriveCraft/OneDrive", "what": "transferring" },
+            { "name": "notes.md", "error": "", "checked": false, "group": "job/6",
+              "started_at": "2026-11-18T23:08:43Z", "srcFs": "/Users/demo/DriveCraft/OneDrive",
+              "dstFs": "onedrive:", "what": "transferring" },
+            { "name": "bad.exe", "checked": false, "group": "job/6",
+              "started_at": "2026-11-18T23:08:44Z", "srcFs": "onedrive:",
+              "error": "failed to open source object: {\"code\":\"malwareDetected\"}" },
+            { "name": "same.txt", "error": "", "checked": true, "group": "job/6",
+              "started_at": "2026-11-18T23:08:45Z" }
+        ]});
+        let mut seen = HashSet::new();
+        let live = live_transfers(&v, "onedrive:", &mut seen);
+        assert_eq!(
+            live.changes,
+            vec![
+                FileChange {
+                    kind: ChangeKind::Downloaded,
+                    path: "Docs/a.pdf".into()
+                },
+                FileChange {
+                    kind: ChangeKind::Uploaded,
+                    path: "notes.md".into()
+                },
+            ]
+        );
+        assert_eq!(live.errors.len(), 1);
+        assert!(transfer_error_text("bad.exe", &live.errors[0].1).contains("virus"));
+        // The next poll returns the same entries: nothing is new.
+        assert_eq!(
+            live_transfers(&v, "onedrive:", &mut seen),
+            LiveTransfers::default()
+        );
+    }
 }
