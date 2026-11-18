@@ -36,7 +36,9 @@ if [ -z "$rclone" ]; then
     exit 1
 fi
 
-stage="target/package/$name"
+# Spotlight skips a folder whose name ends in .noindex, so it does not
+# offer this build copy of DriveCraft.app next to the installed one.
+stage="target/package.noindex/$name"
 rm -rf "$stage"
 mkdir -p "$stage" dist
 package="DriveCraft-$version-$name"

@@ -158,7 +158,7 @@ jobs:
         env:
           NAME: ${{ matrix.name }}
         run: |
-          APP="target/package/$NAME/DriveCraft.app"
+          APP="target/package.noindex/$NAME/DriveCraft.app"
           for binary in "$APP/Contents/MacOS/"*; do
             echo "== $binary"
             details="$(codesign -dvv "$binary" 2>&1)"
@@ -177,7 +177,7 @@ jobs:
           NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: scripts/notarize.sh "target/package/$NAME/DriveCraft.app" dist/DriveCraft-*-"$NAME".zip
+        run: scripts/notarize.sh "target/package.noindex/$NAME/DriveCraft.app" dist/DriveCraft-*-"$NAME".zip
       - uses: actions/upload-artifact@v7
         with:
           name: drivecraft-${{ matrix.name }}
