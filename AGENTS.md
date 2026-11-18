@@ -57,7 +57,7 @@ The egui_kittest accessibility check fails on unnamed controls. Name them (`labe
 ## Release
 
 - `.github/workflows/build.yml` lints and tests on three platforms, then packages six targets with `scripts/package.sh`. A `v*` tag makes a draft release.
-- The macOS bundle puts rclone in `Contents/Resources` (`find_binary` looks there) and has `LSUIElement`. Update `crates/app/assets/DriveCraft.icns` with the `app_icon_set` test in `art.rs` when the app icon changes.
+- The macOS bundle puts rclone in `Contents/MacOS`, next to the main executable (Apple does not allow code in `Resources`), and has `LSUIElement`. For a tag or a manual run, the workflow signs it with the Developer ID of team H95XQBELRP and notarizes it (`scripts/notarize.sh`). The secrets are the same as in Shellyard; `~/Projects/shellyard/Scripts/setup-signing.sh fballiano/drivecraft` sets them. Update `crates/app/assets/DriveCraft.icns` with the `app_icon_set` test in `art.rs` when the app icon changes.
 - Each package includes `LICENSE-MIT`, `LICENSE-APACHE`, `ATTRIBUTION.md`, and the rclone, Inter, and Lucide licenses.
 
 ## Writing

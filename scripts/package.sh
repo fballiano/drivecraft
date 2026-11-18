@@ -5,9 +5,14 @@
 #   scripts/package.sh aarch64-apple-darwin macos-arm64 0.1.0
 #
 # The result goes to dist/:
-#   macOS:   DriveCraft-<version>-<name>.zip (DriveCraft.app, ad-hoc signed)
+#   macOS:   DriveCraft-<version>-<name>.zip (DriveCraft.app)
 #   Windows: DriveCraft-<version>-<name>.zip
 #   Linux:   DriveCraft-<version>-<name>.tar.gz
+#
+# macOS signature: with MACOS_SIGN_IDENTITY (a certificate SHA-1 hash or
+# name) and optional MACOS_KEYCHAIN, the app gets a Developer ID signature
+# with the hardened runtime and a secure timestamp, ready for notarization
+# (scripts/notarize.sh). Without them, it gets an ad-hoc signature.
 set -euo pipefail
 
 target=$1
@@ -49,7 +54,8 @@ case "$target" in
     app="$stage/DriveCraft.app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp "$bin" "$app/Contents/MacOS/DriveCraft"
-    cp "$rclone" "$app/Contents/Resources/rclone"
+    # Apple wants executables in Contents/MacOS, not in Resources.
+    cp "$rclone" "$app/Contents/MacOS/rclone"
     cp crates/app/assets/DriveCraft.icns "$app/Contents/Resources/DriveCraft.icns"
     copy_licenses "$app/Contents/Resources/licenses"
     # CFBundleShortVersionString takes only digits and dots.
@@ -73,9 +79,21 @@ case "$target" in
 </dict>
 </plist>
 EOF
-    # Ad-hoc signature: Apple Silicon needs a signed bundle. This is not a
-    # Developer ID signature, so Gatekeeper still asks on the first start.
-    codesign --force --deep --sign - "$app"
+    identity="${MACOS_SIGN_IDENTITY:-}"
+    if [ -n "$identity" ]; then
+        sign=(codesign --force --options runtime --timestamp --sign "$identity")
+        if [ -n "${MACOS_KEYCHAIN:-}" ]; then
+            sign+=(--keychain "$MACOS_KEYCHAIN")
+        fi
+    else
+        # Ad-hoc: Apple Silicon needs a signed bundle. Gatekeeper still
+        # asks on the first start.
+        sign=(codesign --force --sign -)
+    fi
+    # The inner executable first, then the bundle with its main executable.
+    "${sign[@]}" "$app/Contents/MacOS/rclone"
+    "${sign[@]}" "$app"
+    codesign --verify --deep --strict "$app"
     ditto -c -k --norsrc --noextattr --keepParent "$app" "dist/$package.zip"
     ;;
 *windows*)

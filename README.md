@@ -98,7 +98,7 @@ At build time, `crates/app/build.rs` does these steps:
 
 At run time, DriveCraft looks for rclone in this order:
 
-1. Next to the DriveCraft binary. On macOS, also in `Contents/Resources` of the app bundle.
+1. Next to the DriveCraft binary. In the macOS app bundle, this is `Contents/MacOS`.
    A release package puts rclone here.
 2. The binary that the build downloaded. `cargo run` uses this binary.
 
@@ -134,7 +134,9 @@ GitHub Actions builds DriveCraft for each push to `main` (`.github/workflows/bui
 The packages are in the artifacts of each workflow run.
 To make a release, push a tag such as `v0.1.0`. The workflow then makes a draft release with all packages. Check the draft, then publish it.
 
-The macOS app has no Developer ID signature yet. On the first start, macOS refuses to open it. Open it from **System Settings > Privacy & Security** with **Open Anyway**.
+The macOS app of a release has a Developer ID signature, and Apple notarizes it.
+The packages of a normal push have only an ad-hoc signature. On the first start, macOS refuses to open such an app. Open it from **System Settings > Privacy & Security** with **Open Anyway**.
+To get a signed package without a release, start the workflow by hand: **Actions > Build > Run workflow**.
 
 To make a package on your computer, run `scripts/package.sh <target> <name> <version>`, for example:
 

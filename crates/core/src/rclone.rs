@@ -20,7 +20,7 @@ const USER: &str = "drivecraft";
 /// Finds the rclone binary:
 /// 1. the path in the settings, if it is not empty (for tests only);
 /// 2. the bundled binary next to the DriveCraft binary
-///    (on macOS also `Contents/Resources` in the app bundle);
+///    (in the macOS app bundle: `Contents/MacOS`; `Contents/Resources` also works);
 /// 3. `build_rclone`: the binary that the build downloaded (for `cargo run`).
 ///
 /// DriveCraft does not use rclone from the PATH. It always uses the

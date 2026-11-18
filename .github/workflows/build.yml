@@ -1,5 +1,25 @@
 name: Build
 
+# Each push builds and tests DriveCraft for macOS, Windows, and Linux.
+# A tag `v*` also makes a draft release with all packages.
+#
+# macOS signature: for a tag and for a manual run (Actions -> Build -> Run
+# workflow), the app gets a Developer ID signature and Apple notarizes it.
+# This needs the same settings as Shellyard. To set them, run in a terminal:
+#
+#   ~/Projects/shellyard/Scripts/setup-signing.sh fballiano/drivecraft
+#
+#   variable  APPLE_TEAM_ID              the ten-character Team ID
+#   secret    DEVELOPER_ID_P12_BASE64    the Developer ID Application
+#                                        certificate and its key, .p12, base64
+#   secret    DEVELOPER_ID_P12_PASSWORD  the password of that .p12
+#   secret    NOTARY_KEY_P8_BASE64       an App Store Connect API key, .p8, base64
+#   secret    NOTARY_KEY_ID              the ID of that key
+#   secret    NOTARY_ISSUER_ID           the issuer ID of that key
+#
+# Without APPLE_TEAM_ID, and for a normal push, the app gets an ad-hoc
+# signature.
+
 on:
   push:
     branches: [main]
@@ -53,6 +73,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      SIGN: ${{ contains(matrix.target, 'apple-darwin') && vars.APPLE_TEAM_ID != '' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
     steps:
       - uses: actions/checkout@v7
       - name: Install Linux libraries
@@ -78,6 +101,38 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      # A keychain of its own, for this run only.
+      - name: Import the Developer ID certificate
+        if: env.SIGN == 'true'
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "::error::DEVELOPER_ID_P12_BASE64 is not set. See the top of this file."
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          read -r -a existing <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$KEYCHAIN" "${existing[@]}"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk "/Developer ID Application: .*\\($TEAM_ID\\)/ {print \$2; exit}")"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::The .p12 has no Developer ID Application identity of team $TEAM_ID."
+            exit 1
+          fi
+          echo "MACOS_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "MACOS_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
       - name: Package
         env:
           TARGET: ${{ matrix.target }}
@@ -90,6 +145,31 @@ jobs:
             version="$base-dev.${GITHUB_SHA::7}"
           fi
           scripts/package.sh "$TARGET" "$NAME" "$version"
+      - name: Check the signature
+        if: env.SIGN == 'true'
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          APP="target/package/$NAME/DriveCraft.app"
+          for binary in "$APP/Contents/MacOS/"*; do
+            echo "== $binary"
+            details="$(codesign -dvv "$binary" 2>&1)"
+            echo "$details" | grep -E "Authority=Developer ID Application|TeamIdentifier|flags|Timestamp"
+            echo "$details" | grep -q "TeamIdentifier=$TEAM_ID" \
+              || { echo "::error::$binary is not signed by team $TEAM_ID"; exit 1; }
+            echo "$details" | grep -q "(runtime)" \
+              || { echo "::error::$binary has no hardened runtime"; exit 1; }
+            echo "$details" | grep -q "^Timestamp=" \
+              || { echo "::error::$binary has no secure timestamp"; exit 1; }
+          done
+      - name: Notarize
+        if: env.SIGN == 'true'
+        env:
+          NAME: ${{ matrix.name }}
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: scripts/notarize.sh "target/package/$NAME/DriveCraft.app" dist/DriveCraft-*-"$NAME".zip
       - uses: actions/upload-artifact@v7
         with:
           name: drivecraft-${{ matrix.name }}
