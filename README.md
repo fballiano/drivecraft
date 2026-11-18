@@ -132,7 +132,15 @@ GitHub Actions builds DriveCraft for each push to `main` (`.github/workflows/bui
 | Linux (x64, Arm) | a `tar.gz` file with `drivecraft` and `rclone` |
 
 The packages are in the artifacts of each workflow run.
-To make a release, push a tag such as `v0.1.0`. The workflow then makes a draft release with all packages. Check the draft, then publish it.
+To make a release, push a tag such as `v0.1.0`. The workflow then publishes a release with all packages, and updates the Homebrew cask.
+
+On macOS, you can also install DriveCraft with Homebrew:
+
+```
+brew tap fballiano/tap
+brew trust --tap fballiano/tap
+brew install --cask drivecraft
+```
 
 The macOS app of a release has a Developer ID signature, and Apple notarizes it.
 The packages of a normal push have only an ad-hoc signature. On the first start, macOS refuses to open such an app. Open it from **System Settings > Privacy & Security** with **Open Anyway**.

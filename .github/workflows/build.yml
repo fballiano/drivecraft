@@ -1,7 +1,15 @@
 name: Build
 
 # Each push builds and tests DriveCraft for macOS, Windows, and Linux.
-# A tag `v*` also makes a draft release with all packages.
+# A tag `v*` also publishes a release with all packages, and points the cask
+# Casks/drivecraft.rb in fballiano/homebrew-tap at it:
+#
+#   brew tap fballiano/tap
+#   brew trust --tap fballiano/tap
+#   brew install --cask drivecraft
+#
+# The tap needs the secret TAP_DEPLOY_KEY: a deploy key with write access to
+# fballiano/homebrew-tap only.
 #
 # macOS signature: for a tag and for a manual run (Actions -> Build -> Run
 # workflow), the app gets a Developer ID signature and Apple notarizes it.
@@ -177,7 +185,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Draft release
+    name: Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [lint, build]
     runs-on: ubuntu-24.04
@@ -188,8 +196,64 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Create a draft release
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "DriveCraft $TAG"
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --title "DriveCraft ${TAG#v}"
+
+      # The cask lives in fballiano/homebrew-tap. The secret TAP_DEPLOY_KEY is
+      # a deploy key with write access to that repository only.
+      - name: Check out the Homebrew tap
+        uses: actions/checkout@v7
+        with:
+          repository: fballiano/homebrew-tap
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
+          path: homebrew-tap
+
+      # The workflow writes the whole cask, so the first release creates it.
+      - name: Point the cask at the release
+        working-directory: homebrew-tap
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          ARM_SHA=$(sha256sum "../dist/DriveCraft-$VERSION-macos-arm64.zip" | cut -d' ' -f1)
+          INTEL_SHA=$(sha256sum "../dist/DriveCraft-$VERSION-macos-x64.zip" | cut -d' ' -f1)
+          cat > Casks/drivecraft.rb <<EOF
+          # The release workflow of fballiano/drivecraft writes this file.
+          cask "drivecraft" do
+            arch arm: "arm64", intel: "x64"
+
+            version "$VERSION"
+            sha256 arm:   "$ARM_SHA",
+                   intel: "$INTEL_SHA"
+
+            url "https://github.com/fballiano/drivecraft/releases/download/v#{version}/DriveCraft-#{version}-macos-#{arch}.zip"
+            name "DriveCraft"
+            desc "Open source OneDrive client"
+            homepage "https://github.com/fballiano/drivecraft"
+
+            depends_on :macos
+
+            app "DriveCraft.app"
+
+            # Only the settings. The synced files in ~/DriveCraft stay.
+            zap trash: "~/Library/Application Support/drivecraft"
+          end
+          EOF
+          if git diff --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "The tap already holds version $VERSION."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/drivecraft.rb
+          git commit -m "Point drivecraft at $VERSION"
+          # Another application can push to the tap at the same time.
+          for _ in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1
