@@ -3,6 +3,7 @@
 
 pub mod engine;
 pub mod flatpak;
+pub mod icloud;
 pub mod other_clients;
 pub mod providers;
 pub mod rclone;

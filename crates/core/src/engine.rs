@@ -1397,27 +1397,57 @@ impl Engine {
     }
 
     fn refresh_about(&mut self, id: &str) {
-        let Some(fs_name) = self.settings.account(id).map(Account::remote_fs) else {
+        let Some(account) = self.settings.account(id).cloned() else {
             return;
         };
-        match self.rc.call("operations/about", json!({ "fs": fs_name })) {
-            Ok(v) => self.emit.send(Event::About {
-                account: id.to_string(),
-                used: v["used"].as_u64(),
-                total: v["total"].as_u64(),
-            }),
-            Err(e) => {
-                // Some providers do not report it. The UI says so.
-                self.emit.send(Event::About {
+        let e = match self
+            .rc
+            .call("operations/about", json!({ "fs": account.remote_fs() }))
+        {
+            Ok(v) => {
+                return self.emit.send(Event::About {
                     account: id.to_string(),
-                    used: None,
-                    total: None,
+                    used: v["used"].as_u64(),
+                    total: v["total"].as_u64(),
                 });
-                let e = format!("{e:#}");
-                self.check_sign_in(id, &e);
-                self.log(Some(id), format!("Cannot read the storage use: {e}"));
             }
+            Err(e) => format!("{e:#}"),
+        };
+        // rclone cannot read the storage of iCloud: DriveCraft asks Apple
+        // with the saved session, on a thread of its own.
+        if account.provider == "iclouddrive"
+            && e.contains("doesn't support about")
+            && let Ok(v) = self.rc.call("config/get", json!({ "name": id }))
+            && let Some(cookies) = v["cookies"].as_str().filter(|c| !c.is_empty())
+        {
+            let cookies = cookies.to_string();
+            let emit = self.emit.clone();
+            let id = id.to_string();
+            thread::spawn(move || {
+                let result = crate::icloud::storage(&cookies);
+                if let Err(e) = &result {
+                    emit.send(Event::Log {
+                        account: Some(id.clone()),
+                        text: format!("Cannot read the storage use: {e:#}"),
+                    });
+                }
+                let (used, total) = result.ok().unzip();
+                emit.send(Event::About {
+                    account: id,
+                    used,
+                    total,
+                });
+            });
+            return;
         }
+        // Some providers do not report it. The UI says so.
+        self.emit.send(Event::About {
+            account: id.to_string(),
+            used: None,
+            total: None,
+        });
+        self.check_sign_in(id, &e);
+        self.log(Some(id), format!("Cannot read the storage use: {e}"));
     }
 
     // ----- folders -----
