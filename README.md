@@ -29,7 +29,7 @@ DriveCraft runs on macOS, Windows, and Linux. It uses
 [rclone](https://rclone.org) to connect to the cloud, and it includes rclone,
 so you install nothing else.
 
-<p align="center"><img src="docs/screenshot.png" width="800" alt="The Overview page of DriveCraft with three accounts" /></p>
+<p align="center"><img src="docs/demo.gif" width="800" alt="DriveCraft adds a Work account: you select its folders, start the sync, and see each file while it downloads" /></p>
 
 ## Highlights
 
@@ -46,6 +46,20 @@ so you install nothing else.
   DriveCraft refuses the folders of other cloud apps.
 - **In the tray.** DriveCraft runs in the menu bar or the system tray, like
   the official apps.
+
+## Compare
+
+| | DriveCraft | Official apps | Insync | onedrive (abraunegg) | rclone |
+|---|---|---|---|---|---|
+| Open source | Yes | No | No | Yes | Yes |
+| Price | Free | Free | Paid | Free | Free |
+| Platforms | macOS, Windows, Linux | macOS, Windows; Linux for some clouds | macOS, Windows, Linux | Linux | macOS, Windows, Linux |
+| Clouds | 7, in one app | One app for each cloud | Google Drive, OneDrive, Dropbox | OneDrive | More than 70 |
+| App with a window and a tray icon | Yes | Yes | Yes | No, command line | No, command line |
+| Selective sync | Yes | Yes | Yes | Yes, in a file | Yes, with filter rules |
+| Real files on the disk | Yes | Placeholders by default | Yes | Yes | Yes |
+
+This table shows the state in November 2026. If something is wrong, [open an issue](https://github.com/fballiano/drivecraft/issues).
 
 ## Install
 
@@ -111,6 +125,8 @@ To render each page with demo data to `target/screenshots/`, run:
 ```
 cargo test -p drivecraft screenshots -- --ignored
 ```
+
+To make `docs/demo.gif` again, run `scripts/demo-gif.sh` (it needs gifski). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
 
 ## Change from the official app
 

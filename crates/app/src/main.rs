@@ -860,7 +860,13 @@ mod preview {
         shoot_sized(name, app, dark, 1080.0);
     }
 
-    fn shoot_sized(name: &str, mut app: App, dark: bool, width: f32) {
+    fn shoot_sized(name: &str, app: App, dark: bool, width: f32) {
+        let mode = if dark { "dark" } else { "light" };
+        render(app, dark, width, "screenshots", &format!("{name}-{mode}"));
+    }
+
+    /// Renders `app` to `target/<dir>/<name>.png`.
+    fn render(mut app: App, dark: bool, width: f32, dir: &str, name: &str) {
         app.appearance = if dark {
             Appearance::Dark
         } else {
@@ -889,10 +895,81 @@ mod preview {
             );
         harness.run_steps(5);
         let image = harness.render().expect("render");
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/screenshots");
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let mode = if dark { "dark" } else { "light" };
-        image.save(dir.join(format!("{name}-{mode}.png"))).unwrap();
+        image.save(dir.join(format!("{name}.png"))).unwrap();
+    }
+
+    /// The frames of `docs/demo.gif`: one more account, from the sign-in to the end of its first sync.
+    /// Run it with `cargo test -p drivecraft demo_frames -- --ignored`, then `scripts/demo-gif.sh`.
+    #[test]
+    #[ignore = "writes PNG files; run on demand"]
+    fn demo_frames() {
+        let work = || Page::Account("onedrive-2".into());
+        let set_work = |app: &mut App, f: &dyn Fn(&mut Account)| {
+            if let Some(s) = &mut app.settings {
+                s.accounts
+                    .iter_mut()
+                    .filter(|a| a.id == "onedrive-2")
+                    .for_each(f);
+            }
+        };
+        let syncing = |fraction: f32, done: u32, current: Vec<Transfer>| Syncing {
+            account: "onedrive-2".into(),
+            text: format!("{done} of 418 files · {:.1} of 862.0 MB", 862.0 * fraction),
+            fraction: Some(fraction),
+            current,
+        };
+        let mut frames = Vec::new();
+
+        frames.push(demo_app(Page::AddAccount));
+        frames.push(demo_app(work()));
+        let mut archive = demo_app(work());
+        set_work(&mut archive, &|a| {
+            a.pending_pin.insert("Archive".into());
+        });
+        frames.push(archive);
+        let mut overview = demo_app(Page::Overview);
+        set_work(&mut overview, &|a| {
+            a.awaiting_selection = false;
+            a.pending_pin.insert("Archive".into());
+        });
+        overview.syncing = Some(syncing(0.18, 74, Vec::new()));
+        frames.push(overview);
+        let mut activity = demo_app(Page::Activity);
+        set_work(&mut activity, &|a| a.awaiting_selection = false);
+        activity.syncing = Some(syncing(
+            0.62,
+            259,
+            vec![
+                Transfer {
+                    kind: ChangeKind::Downloaded,
+                    path: "Clients/Acme/contract.pdf".into(),
+                    fraction: Some(0.48),
+                },
+                Transfer {
+                    kind: ChangeKind::Downloaded,
+                    path: "Templates/invoice.xlsx".into(),
+                    fraction: Some(0.81),
+                },
+            ],
+        ));
+        frames.push(activity);
+        let mut done = demo_app(Page::Overview);
+        set_work(&mut done, &|a| {
+            a.awaiting_selection = false;
+            a.pinned = ["Archive", "Clients", "Templates"].map(String::from).into();
+            a.pending_pin.clear();
+        });
+        done.last_sync.insert("onedrive-2".into(), "15:47".into());
+        frames.push(done);
+
+        for (i, mut app) in frames.into_iter().enumerate() {
+            app.new_folders.clear();
+            render(app, false, 1080.0, "demo-frames", &format!("{i:02}"));
+        }
     }
 
     #[test]
