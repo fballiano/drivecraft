@@ -340,7 +340,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --title "DriveCraft ${TAG#v}"
+        # The notes come from the <release> element of the metainfo file.
+        # GitHub appends its generated notes (the "Full Changelog" link).
+        run: |
+          scripts/release-notes.sh "${TAG#v}" > notes.md
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "DriveCraft ${TAG#v}" --notes-file notes.md --generate-notes
 
       # The cask lives in fballiano/homebrew-tap. The secret TAP_DEPLOY_KEY is
       # a deploy key with write access to that repository only.

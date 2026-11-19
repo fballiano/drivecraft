@@ -87,7 +87,7 @@ The egui_kittest accessibility check fails on unnamed controls. Name them (`labe
   - **AUR:** `drivecraft-bin`, from `packaging/aur/PKGBUILD.in` and `scripts/aur.sh`. The `aur-check` job builds it with each Linux package; the release job pushes it (secret `AUR_SSH_PRIVATE_KEY`).
   - **winget:** `FabrizioBalliano.DriveCraft`. `scripts/winget.sh <version>` writes the manifests. The first version is in pull request microsoft/winget-pkgs#484091: **after each release, until Microsoft merges it, run `scripts/winget-pr.sh <version>`**, which moves the pull request to the new version. After the merge, the release workflow sends new versions with winget-releaser (secret `WINGET_TOKEN`). `.github/workflows/winget-test.yml` (manual) validates, installs, starts, and uninstalls a release on a Windows runner.
   - **Flathub:** `packaging/flatpak/io.github.fballiano.drivecraft.yml`. The `flatpak` job makes a test build. For a release, `scripts/flatpak.sh flathub <tag>` writes the manifest and `cargo-sources.json` for the Flathub repository. Not on Flathub yet. **Never open, update, or comment on a Flathub pull request:** Flathub forbids AI tools and agents in submissions and in review interactions. The user submits; see the TODO in `HANDOFF.md`.
-- At each release, add a `<release>` element to `packaging/linux/io.github.fballiano.drivecraft.metainfo.xml`. Flathub requires it.
+- At each release, add a `<release>` element with `<li>` items to `packaging/linux/io.github.fballiano.drivecraft.metainfo.xml`. Flathub requires it, and the release job makes the notes of the GitHub release from it (`scripts/release-notes.sh`). Without it, the release job fails.
 
 ## Writing
 
