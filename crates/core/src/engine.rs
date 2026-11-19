@@ -901,7 +901,24 @@ impl Engine {
         let Some(run) = self.signing_in.take() else {
             return;
         };
+        if run.provider == "iclouddrive" {
+            self.log(
+                run.account().as_deref(),
+                "If your iPhone asks for access to your iCloud data on the web, select \
+                 \"Allow\" one time. Then wait: Apple can take a minute."
+                    .into(),
+            );
+        }
+        // The spinner stays until the first folder list works: with
+        // Advanced Data Protection, it waits for the iPhone.
+        self.emit.send(Event::SignIn(SignInStep::Working {
+            account: run.account(),
+        }));
+        self.sign_in_finish(run);
         self.emit.send(Event::SignIn(SignInStep::Idle));
+    }
+
+    fn sign_in_finish(&mut self, run: SignInRun) {
         if !run.again {
             if let Err(e) = self.add_account(run.id.clone(), run.provider.clone()) {
                 let _ = self.rc.call("config/delete", json!({ "name": run.id }));
@@ -1005,7 +1022,17 @@ impl Engine {
         let _ = fs::remove_file(Settings::snapshot_file(&id));
         self.settings.accounts.push(account.clone());
         self.runtimes.insert(id.clone(), Runtime::new(&id));
-        match self.list_dir(&id, "") {
+        let mut top = self.list_dir(&id, "");
+        if top
+            .as_ref()
+            .is_err_and(|e| format!("{e:#}").contains("requestPCS"))
+        {
+            // iCloud with Advanced Data Protection: the iPhone approved the
+            // access, but Apple did not give the cookies yet. A second try
+            // gets them without a new question on the iPhone.
+            top = self.list_dir(&id, "");
+        }
+        match top {
             Ok(top) => account.pending_pin.extend(top),
             Err(e) => self.error(
                 Some(&id),
@@ -1503,8 +1530,8 @@ impl Engine {
                 // number is finite, so this cannot repeat for ever.
                 self.log(
                     Some(&id),
-                    "The sync stopped at blocked files. DriveCraft starts it again \
-                     and skips these files."
+                    "The sync stopped at files that DriveCraft cannot sync. DriveCraft \
+                     starts it again and skips these files."
                         .into(),
                 );
                 self.start_sync(&id);
@@ -1609,6 +1636,17 @@ impl Engine {
                         "{provider} blocks \"{name}\": it marks the file as infected with a \
                          virus. DriveCraft skips this file. To download blocked files, turn on \
                          \"Download blocked files\" in Settings."
+                    ));
+                }
+            } else if account.provider == "iclouddrive" && is_package_error(&err) {
+                // Always skipped, also by later syncs (filter rules).
+                if account.skipped_files.insert(name.clone()) {
+                    sync.newly_blocked += 1;
+                    settings_changed = true;
+                    messages.push(format!(
+                        "iCloud gives \"{name}\" only as an archive: it is a macOS package, for \
+                         example a GarageBand or Logic project. DriveCraft skips it. It stays \
+                         in iCloud."
                     ));
                 }
             } else if sync.live_errors.insert(name.clone()) {
@@ -1945,6 +1983,12 @@ fn is_blocked_error(error: &str) -> bool {
     error.contains("malwareDetected") || error.contains("cannotDownloadAbusiveFile")
 }
 
+/// The error of a macOS package in iCloud Drive: the download (an archive)
+/// has a different size than the listed file.
+fn is_package_error(error: &str) -> bool {
+    error.contains("corrupted on transfer: sizes differ")
+}
+
 /// A sign-in that takes longer stops. Without a limit, a hanging rclone
 /// (for example behind a proxy) shows "Finish the sign-in" forever.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -2067,6 +2111,10 @@ mod tests {
         assert_eq!(live.errors.len(), 1);
         assert!(is_blocked_error(&live.errors[0].1));
         assert!(!is_blocked_error("HTTP error 500"));
+        assert!(is_package_error(
+            "corrupted on transfer: sizes differ src() 906126 vs dst(Local file system at /x) 493140"
+        ));
+        assert!(!is_package_error("HTTP error 500"));
         // The next poll returns the same entries: nothing is new.
         assert_eq!(
             live_transfers(&v, "onedrive:", &mut seen),
