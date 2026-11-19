@@ -67,7 +67,7 @@ git = (
     f"        commit: {commit}\n"
 )
 text = text[:start] + git + text[end:]
-text = text.replace("# scripts/flatpak.sh flathub replaces this source with the release tag.\n", "")
+text = text.replace("      # scripts/flatpak.sh flathub replaces this source with the release tag.\n", "")
 open(dst, "w").write(text)
 EOF
     echo "Copy the files in $out to the Flathub repository."
