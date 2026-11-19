@@ -54,6 +54,7 @@ fn main() -> eframe::Result {
                 width: icon.size,
                 height: icon.size,
             })),
+        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     eframe::run_native(
@@ -61,6 +62,31 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, guard, hidden)))),
     )
+}
+
+/// The graphics setup of the window.
+/// - Windows: DirectX 12 only. wgpu prefers Vulkan, and the Vulkan driver of
+///   some Intel GPUs crashes DriveCraft at the start (igvk64.dll).
+/// - All systems: the GPU with the lower power use. An app in the tray must
+///   not wake up the discrete GPU of a laptop.
+///
+/// The variables `WGPU_BACKEND` and `WGPU_POWER_PREF` still select a
+/// different backend or GPU.
+fn wgpu_options() -> eframe::WgpuConfiguration {
+    use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
+    use eframe::wgpu::{Backends, PowerPreference};
+
+    let mut setup = WgpuSetupCreateNew::without_display_handle();
+    if cfg!(windows) && Backends::from_env().is_none() {
+        setup.instance_descriptor.backends = Backends::DX12;
+    }
+    if PowerPreference::from_env().is_none() {
+        setup.power_preference = PowerPreference::LowPower;
+    }
+    eframe::WgpuConfiguration {
+        wgpu_setup: WgpuSetup::CreateNew(setup),
+        ..Default::default()
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
