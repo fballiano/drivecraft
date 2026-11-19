@@ -49,6 +49,8 @@ jobs:
           $out = winget validate --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION" | Out-String
           Write-Host $out
           if ($out -notmatch "Manifest validation succeeded") { throw "The validation failed." }
+          # Else PowerShell ends the step with the exit code of winget.
+          exit 0
 
       - name: Install with the manifests
         run: |
