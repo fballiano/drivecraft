@@ -97,6 +97,8 @@
   pre {
     background: var(--card); border: 1px solid var(--border); border-radius: 8px;
     padding: 14px 16px; overflow-x: auto; margin: 8px 0 0;
+    /* Long commands wrap on screen; a copy still gives one line. */
+    white-space: pre-wrap; overflow-wrap: anywhere;
   }
   footer { padding: 56px 0 48px; color: var(--faint); font-size: 14px; text-align: center; }
   footer a { color: var(--dim); }
@@ -214,7 +216,9 @@ brew install --cask drivecraft</code></pre>
       </div>
       <div class="card">
         <h3>Windows</h3>
-        <p>Download the installer for x64 or Arm from the <a href="https://github.com/fballiano/drivecraft/releases/latest">latest release</a>. It installs DriveCraft for your user, without administrator rights.</p>
+        <p>With <a href="https://scoop.sh">Scoop</a>, or with the installer for x64 or Arm from the <a href="https://github.com/fballiano/drivecraft/releases/latest">latest release</a>.</p>
+        <pre><code>scoop bucket add fballiano https://github.com/fballiano/scoop-bucket
+scoop install fballiano/drivecraft</code></pre>
       </div>
       <div class="card">
         <h3>Linux</h3>
