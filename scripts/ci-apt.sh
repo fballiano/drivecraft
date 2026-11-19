@@ -10,15 +10,29 @@
 # nothing changes.
 set -euo pipefail
 
-azure=http://azure.archive.ubuntu.com/ubuntu/
-sources=/etc/apt/sources.list.d/ubuntu.sources
-if [ -f "$sources" ]; then
-    sudo sed -i \
-        -e "s#mirror+file:/etc/apt/apt-mirrors.txt#$azure#" \
-        -e "s#http://security.ubuntu.com/ubuntu/\{0,1\}#$azure#" \
-        -e "s#http://archive.ubuntu.com/ubuntu/\{0,1\}#$azure#" \
-        "$sources"
+# The runner image can already have the packages.
+missing=()
+for package in "$@"; do
+    dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" \
+        || missing+=("$package")
+done
+if [ ${#missing[@]} -eq 0 ]; then
+    echo "All packages are installed: $*"
+    exit 0
 fi
+
+azure=http://azure.archive.ubuntu.com/ubuntu/
+shopt -s nullglob
+for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [ -f "$file" ] || continue
+    sudo sed -i -E \
+        -e "s#mirror\+file:/etc/apt/apt-mirrors\.txt#$azure#g" \
+        -e "s#https?://(security|archive)\.ubuntu\.com/ubuntu/?#$azure#g" \
+        "$file"
+done
+echo "The sources of apt:"
+grep -hE "^(deb |URIs:)" /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null | sort -u
+
 apt=(sudo apt-get -o Acquire::Retries=5)
 "${apt[@]}" update
-"${apt[@]}" install -y "$@"
+"${apt[@]}" install -y "${missing[@]}"
