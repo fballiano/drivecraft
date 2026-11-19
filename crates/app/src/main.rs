@@ -215,6 +215,8 @@ struct PasswordForm {
     account: Option<String>,
     user: String,
     password: String,
+    /// The optional code (`SignIn::Password::code`).
+    code: String,
 }
 
 /// The state of the sign-out dialog.
@@ -1257,6 +1259,7 @@ mod preview {
                 account: None,
                 user: "someone@example.com".into(),
                 password: "password".into(),
+                code: String::new(),
             });
             shoot("add-account-icloud", icloud, dark);
             let mut code = demo_app(Page::AddAccount);
@@ -1274,8 +1277,18 @@ mod preview {
                 account: None,
                 user: String::new(),
                 password: String::new(),
+                code: String::new(),
             });
             shoot_sized("add-account-icloud-narrow", narrow_form, dark, 780.0);
+            let mut mega = demo_app(Page::AddAccount);
+            mega.password_form = Some(PasswordForm {
+                provider: "mega".into(),
+                account: None,
+                user: "someone@example.com".into(),
+                password: "password".into(),
+                code: String::new(),
+            });
+            shoot("add-account-mega", mega, dark);
         }
     }
 }

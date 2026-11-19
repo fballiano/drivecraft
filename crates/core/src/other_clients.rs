@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 ///   Windows: `~/Box` and `~/Google Drive`;
 /// - the default folders of pCloud Drive, kDrive, and Yandex Disk;
 /// - iCloud Drive: `~/Library/Mobile Documents` on macOS (the system syncs
-///   it), and `~/iCloudDrive` of the iCloud app for Windows.
+///   it), and `~/iCloudDrive` of the iCloud app for Windows;
+/// - the default folders of the MEGA app: `~/MEGA` and the older `~/MEGAsync`.
 pub fn folders(home: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     #[cfg(windows)]
@@ -46,6 +47,8 @@ pub fn folders(home: &Path) -> Vec<PathBuf> {
         "kDrive",
         "Yandex.Disk",
         "Yandex.Disk.localized",
+        "MEGA",
+        "MEGAsync",
     ] {
         out.push(home.join(name));
     }

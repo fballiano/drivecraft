@@ -1576,6 +1576,7 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
                         account: None,
                         user: String::new(),
                         password: String::new(),
+                        code: String::new(),
                     });
                 } else if p.field.is_some() {
                     app.add_field = Some((p.id.to_string(), String::new()));
@@ -1613,6 +1614,7 @@ fn start_sign_in_again(app: &mut App, account: &Account) {
                 account: Some(account.id.clone()),
                 user: String::new(),
                 password: String::new(),
+                code: String::new(),
             });
         }
         _ => app.engine.send(Command::SignInAgain(account.id.clone())),
@@ -1719,7 +1721,10 @@ fn password_form(app: &mut App, ui: &mut Ui) {
         return;
     };
     let Some(SignIn::Password {
-        user_label, hint, ..
+        user_label,
+        hint,
+        code: code_option,
+        ..
     }) = provider(&form.provider).map(|p| &p.sign_in)
     else {
         return;
@@ -1747,6 +1752,10 @@ fn password_form(app: &mut App, ui: &mut Ui) {
         }
         let password = labelled_field(ui, "Password", &mut form.password, true);
         enter |= password.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if let Some((_, code_label)) = code_option {
+            let code = labelled_field(ui, code_label, &mut form.code, false);
+            enter |= code.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        }
         let ready = (again || !form.user.trim().is_empty()) && !form.password.is_empty();
         ui.add_space(2.0);
         ui.horizontal(|ui| {
@@ -1760,6 +1769,7 @@ fn password_form(app: &mut App, ui: &mut Ui) {
             account: form.account,
             user: form.user,
             password: form.password,
+            code: form.code,
         });
     } else if cancel {
         app.password_form = None;

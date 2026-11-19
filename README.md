@@ -325,7 +325,12 @@ Each provider has modification times and hashes, which the two-way sync needs.
 
 iCloud Drive is in development, and only test builds show it. You type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again. DriveCraft replaces the iCloud app on Windows: uninstall it first. On macOS, turn off iCloud Drive in **System Settings > Apple Account > iCloud**, else the same files sync twice.
 
-Mega is not available: rclone cannot set the modification time of a file on Mega. Then the two-way sync cannot find the newer version of a file, and an old copy can overwrite a newer file.
+MEGA is in development, and only test builds show it. You type your email, your password, and the two-factor code if your account uses one. DriveCraft gives them to rclone for the sign-in only, and then removes them.
+rclone cannot set the modification time of a file on MEGA, so the two-way sync cannot find the newer version. For MEGA, this computer is the master:
+
+- A full sync (the first sync, a change of folders, **Full resync**) keeps the copy on this computer when a file is different on the two sides.
+- When a file changed on the two sides between two syncs, DriveCraft keeps both versions as conflict copies.
+- DriveCraft finds new, deleted, and changed files on MEGA, but not a change that keeps the same file size.
 
 ## Google Drive
 

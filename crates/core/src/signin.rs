@@ -53,6 +53,7 @@ impl SignInStep {
 /// - pCloud: `Invalid 'access_token' provided`. Yandex: `UnauthorizedError`.
 /// - iCloud: the trust token ended ("trust token expired, please reauth"),
 ///   or Apple refused the sign-in without the password ("sign in failed").
+/// - MEGA: the session ended ("login with previous auth keys failed").
 pub fn expired(error: &str) -> bool {
     let e = error.to_lowercase();
     [
@@ -65,6 +66,7 @@ pub fn expired(error: &str) -> bool {
         "trust token",
         "please reauth",
         "sign in failed:",
+        "previous auth keys failed",
     ]
     .iter()
     .any(|p| e.contains(p))
@@ -125,6 +127,7 @@ mod tests {
             "trust token expired, please reauth",
             "missing icloud trust token: try refreshing it with \"rclone config reconnect iclouddrive:\"",
             "sign in failed: incorrect username or password",
+            "couldn't login: login with previous auth keys failed: EEXPIRED",
         ] {
             assert!(expired(e), "{e}");
         }

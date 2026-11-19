@@ -4,10 +4,9 @@
 //! (OAuth), so `rclone config create <id> <backend> <options>` is the whole
 //! setup. Some need one value from the user first (`Provider::field`).
 //! Some sign in with a password and a code in DriveCraft (`SignIn::Password`).
-//! Each provider must have modification times that rclone can set, or
-//! hashes, because bisync needs them (see https://rclone.org/overview/).
-//! Without them, bisync ignores `resyncMode: newer`, and an old local copy
-//! can overwrite a newer file online. For this reason, Mega is not here.
+//! bisync needs modification times that rclone can set, or hashes (see
+//! https://rclone.org/overview/). A provider without them (Mega) has
+//! `computer_wins`: this computer is the master of the account.
 
 pub struct Provider {
     /// The rclone backend, for example "drive".
@@ -21,6 +20,12 @@ pub struct Provider {
     /// A value that the user types before the sign-in.
     pub field: Option<Field>,
     pub sign_in: SignIn,
+    /// True when rclone cannot set modification times on the provider
+    /// (`Precision` is `ModTimeNotSupported`). Then bisync cannot find the
+    /// newer version, so this computer is the master: a resync keeps the
+    /// local version of each different file, a conflict keeps both versions,
+    /// and an online change that keeps the size is not found.
+    pub computer_wins: bool,
 }
 
 /// How the user signs in to a provider.
@@ -41,6 +46,13 @@ pub enum SignIn {
         user_label: &'static str,
         /// What the user must know before the sign-in.
         hint: &'static str,
+        /// An optional code that goes with the password (the rclone option
+        /// and its label), for example the 2FA code of Mega.
+        code: Option<(&'static str, &'static str)>,
+        /// The rclone options of the session. A new sign-in removes them
+        /// first, and starts rclone again after it, because rclone keeps
+        /// the session in memory (Mega).
+        session_keys: &'static [&'static str],
     },
 }
 
@@ -74,6 +86,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "drive",
@@ -89,6 +102,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: false,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "dropbox",
@@ -97,6 +111,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "box",
@@ -105,6 +120,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "pcloud",
@@ -113,6 +129,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "kdrive",
@@ -127,6 +144,7 @@ pub const PROVIDERS: &[Provider] = &[
             check: digits,
         }),
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "hidrive",
@@ -135,6 +153,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "yandex",
@@ -143,6 +162,7 @@ pub const PROVIDERS: &[Provider] = &[
         available: true,
         field: None,
         sign_in: SignIn::Browser,
+        computer_wins: false,
     },
     Provider {
         id: "iclouddrive",
@@ -160,7 +180,30 @@ pub const PROVIDERS: &[Provider] = &[
             hint: "Use your normal Apple Account password, not an app-specific password. \
                    On your iPhone, \"Access iCloud Data on the Web\" must be on \
                    (Settings > Apple Account > iCloud).",
+            code: None,
+            session_keys: &[],
         },
+        computer_wins: false,
+    },
+    Provider {
+        id: "mega",
+        label: "MEGA",
+        options: &[],
+        // Only in debug builds until a test with a real MEGA account.
+        available: cfg!(debug_assertions),
+        field: None,
+        sign_in: SignIn::Password {
+            user_key: "user",
+            password_key: "pass",
+            user_label: "Email",
+            hint: "Use the email and the password of your MEGA account. MEGA keeps no \
+                   modification times, so this computer is the master: when a file is \
+                   different, the copy on this computer wins.",
+            code: Some(("2fa", "Two-factor code (only if your account uses it)")),
+            session_keys: &["session_id", "master_key"],
+        },
+        // rclone cannot set modification times on MEGA.
+        computer_wins: true,
     },
 ];
 
@@ -190,6 +233,18 @@ mod tests {
         assert_eq!(ids.len(), PROVIDERS.len());
         assert_eq!(provider_label("kdrive"), "kDrive");
         assert_eq!(provider_label("unknown"), "unknown");
+    }
+
+    #[test]
+    fn only_mega_lets_this_computer_win() {
+        // rclone cannot set modification times only on MEGA. A different
+        // provider with `computer_wins` would lose the "newer" rule.
+        let winners: Vec<_> = PROVIDERS
+            .iter()
+            .filter(|p| p.computer_wins)
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(winners, ["mega"]);
     }
 
     #[test]

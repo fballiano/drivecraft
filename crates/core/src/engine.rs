@@ -85,12 +85,14 @@ pub enum Command {
     SignInAgain(String),
     /// Signs in with a password (`SignIn::Password`). `account` is None for
     /// a new account, else the account that signs in again. For an account
-    /// that signs in again, an empty `user` keeps its user name.
+    /// that signs in again, an empty `user` keeps its user name. `code` is
+    /// the optional code of `SignIn::Password::code`, or empty.
     SignInWithPassword {
         provider: String,
         account: Option<String>,
         user: String,
         password: String,
+        code: String,
     },
     /// The answer to `SignInStep::Question`, for example the code.
     SignInAnswer(String),
@@ -359,9 +361,12 @@ struct SignInRun {
     provider: String,
     /// True for an account that signs in again.
     again: bool,
-    /// The rclone option of the password (`SignIn::Password`), or None for
-    /// a sign-in in the browser.
-    password_key: Option<&'static str>,
+    /// The rclone options that the sign-in removes at its end: the
+    /// password and the code (`SignIn::Password`). Empty for a sign-in in
+    /// the browser.
+    forget: Vec<&'static str>,
+    /// True when rclone must start again before it uses the new session.
+    restart: bool,
     /// The config state that waits for the answer of the user.
     state: Option<String>,
 }
@@ -478,7 +483,8 @@ impl Engine {
                 account,
                 user,
                 password,
-            } => self.sign_in_with_password(provider, account, user, password),
+                code,
+            } => self.sign_in_with_password(provider, account, user, password, code),
             Command::SignInAnswer(answer) => self.answer_sign_in(answer),
             Command::CancelSignIn => self.cancel_sign_in(),
             Command::BrowserSignInResult(Ok(())) => self.sign_in_complete(),
@@ -613,7 +619,8 @@ impl Engine {
                 id,
                 provider,
                 again: false,
-                password_key: None,
+                forget: Vec::new(),
+                restart: false,
                 state: None,
             },
             Some(options),
@@ -718,7 +725,8 @@ impl Engine {
                 id: id.to_string(),
                 provider: account.provider.clone(),
                 again: true,
-                password_key: None,
+                forget: Vec::new(),
+                restart: false,
                 state: None,
             },
             None,
@@ -733,6 +741,7 @@ impl Engine {
         account: Option<String>,
         user: String,
         password: String,
+        code: String,
     ) {
         let Some(p) =
             crate::providers::provider(&provider).filter(|p| p.available || account.is_some())
@@ -744,6 +753,8 @@ impl Engine {
             user_key,
             password_key,
             user_label,
+            code: code_option,
+            session_keys,
             ..
         } = p.sign_in
         else {
@@ -764,6 +775,15 @@ impl Engine {
             );
             return;
         }
+        let restart = !session_keys.is_empty() && account.is_some();
+        if restart && self.sync.is_some() {
+            // The new session needs a new rclone, and a sync uses it now.
+            self.error(
+                account.as_deref(),
+                "Wait until the sync is complete, then sign in again.".into(),
+            );
+            return;
+        }
         if self.sign_in_runs() {
             return;
         }
@@ -775,6 +795,14 @@ impl Engine {
             parameters.insert(user_key.into(), json!(user));
         }
         parameters.insert(password_key.into(), json!(password));
+        let mut forget = vec![password_key];
+        if let Some((key, _)) = code_option {
+            forget.push(key);
+            let code = code.trim();
+            if !code.is_empty() {
+                parameters.insert(key.into(), json!(code));
+            }
+        }
         let again = account.is_some();
         let id = match account {
             Some(id) => id,
@@ -784,9 +812,19 @@ impl Engine {
             id: id.clone(),
             provider: provider.clone(),
             again,
-            password_key: Some(password_key),
+            forget,
+            restart,
             state: None,
         };
+        if again && !session_keys.is_empty() {
+            // Without the old session, rclone signs in with the password.
+            if let Err(e) = self
+                .rc
+                .call("config/unset", json!({ "name": id, "keys": session_keys }))
+            {
+                self.error(Some(&id), format!("Cannot remove the old session: {e:#}"));
+            }
+        }
         self.emit.send(Event::SignIn(SignInStep::Working {
             account: run.account(),
         }));
@@ -928,7 +966,12 @@ impl Engine {
             self.forget_password(&run);
             return;
         }
-        // A cached remote can still have the old session.
+        // A cached remote can still have the old session. rclone keeps the
+        // session of some providers in memory, so it starts again (no sync
+        // runs: `sign_in_with_password` checks that).
+        if run.restart && self.sync.is_none() {
+            self.restart_rclone();
+        }
         let _ = self.rc.call("fscache/clear", json!({}));
         if let Err(e) = self.list_dir(&run.id, "") {
             self.forget_password(&run);
@@ -953,13 +996,13 @@ impl Engine {
     /// Removes the password from the rclone file. rclone continues with
     /// the session of the provider (see `SignIn::Password`).
     fn forget_password(&mut self, run: &SignInRun) {
-        let Some(key) = run.password_key else {
+        if run.forget.is_empty() {
             return;
-        };
-        if let Err(e) = self
-            .rc
-            .call("config/unset", json!({ "name": run.id, "keys": [key] }))
-        {
+        }
+        if let Err(e) = self.rc.call(
+            "config/unset",
+            json!({ "name": run.id, "keys": run.forget }),
+        ) {
             self.error(
                 None,
                 format!("Cannot remove the password from the rclone file: {e:#}"),
@@ -1452,15 +1495,20 @@ impl Engine {
             "resync": resync,
             "_async": true,
         });
+        // Without modification times on the provider, bisync cannot find the
+        // newer version: this computer is the master (`computer_wins`).
+        let computer_wins =
+            crate::providers::provider(&a.provider).is_some_and(|p| p.computer_wins);
         if resync {
             // Without a mode, a resync prefers path1: an old local copy
             // overwrites a newer file online. Keep the newer version.
-            params["resyncMode"] = json!("newer");
+            params["resyncMode"] = json!(if computer_wins { "path1" } else { "newer" });
         } else {
             // A file that changed on both sides: the newer version keeps the
             // name, the other one becomes "name.conflict1.ext" on both
             // sides. Nothing is lost, and the copy keeps its extension.
-            params["conflictResolve"] = json!("newer");
+            // Without times, both versions get a conflict name.
+            params["conflictResolve"] = json!(if computer_wins { "none" } else { "newer" });
             params["conflictLoser"] = json!("num");
             params["_config"] = json!({ "SuffixKeepExtension": true });
         }
