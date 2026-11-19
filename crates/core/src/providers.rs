@@ -178,8 +178,8 @@ pub const PROVIDERS: &[Provider] = &[
             password_key: "password",
             user_label: "Apple ID",
             hint: "Use your normal Apple Account password, not an app-specific password. \
-                   On your iPhone, \"Access iCloud Data on the Web\" must be on \
-                   (Settings > Apple Account > iCloud).",
+                   On your iPhone, turn on Settings > Apple Account > iCloud > \
+                   Access iCloud Data on the Web.",
             code: None,
             session_keys: &[],
         },
@@ -196,9 +196,7 @@ pub const PROVIDERS: &[Provider] = &[
             user_key: "user",
             password_key: "pass",
             user_label: "Email",
-            hint: "Use the email and the password of your MEGA account. MEGA keeps no \
-                   modification times, so this computer is the master: when a file is \
-                   different, the copy on this computer wins.",
+            hint: "Use the email and the password of your MEGA account.",
             code: Some(("2fa", "Two-factor code (only if your account uses it)")),
             session_keys: &["session_id", "master_key"],
         },

@@ -1532,12 +1532,7 @@ fn add_account(app: &mut App, ui: &mut Ui) {
     );
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         card(ui, |ui| {
-            card_title(
-                ui,
-                icons::CLOUD,
-                "Select your cloud",
-                Some("Most providers open their sign-in page in your browser."),
-            );
+            card_title(ui, icons::CLOUD, "Select your cloud", None);
             ui.add_space(12.0);
             sign_in(app, ui);
         });
@@ -1554,7 +1549,8 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
         return;
     }
     let gap = 10.0;
-    let providers: Vec<_> = available_providers().collect();
+    let mut providers: Vec<_> = available_providers().collect();
+    providers.sort_by_key(|p| p.label.to_lowercase());
     // As many in a row as fit, in rows of the same length (4 + 3, not 6 + 1).
     let fit = ((ui.available_width() + gap) / (150.0 + gap)) as usize;
     let n = providers.len().max(1);
@@ -1715,6 +1711,22 @@ fn labelled_field(ui: &mut Ui, label: &str, text: &mut String, password: bool) -
     .labelled_by(id)
 }
 
+/// A short note with an icon in a sign-in form.
+fn form_note(ui: &mut Ui, icon: &str, title: &str, text: &str) {
+    let t = Tokens::of(ui);
+    ui.horizontal_top(|ui| {
+        ui.label(RichText::new(icon).font(icon_font(16.0)).color(t.accent));
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.label(RichText::new(title).font(medium(13.0)).color(t.text));
+            ui.add(
+                egui::Label::new(RichText::new(text).font(regular(12.5)).color(t.text_dim)).wrap(),
+            );
+        });
+    });
+}
+
 /// The user name and the password of a provider with `SignIn::Password`.
 fn password_form(app: &mut App, ui: &mut Ui) {
     let Some(form) = app.password_form.as_ref() else {
@@ -1730,21 +1742,40 @@ fn password_form(app: &mut App, ui: &mut Ui) {
         return;
     };
     let label = provider_label(&form.provider).to_string();
+    let computer_wins = provider(&form.provider).is_some_and(|p| p.computer_wins);
     let again = form.account.is_some();
+    let t = Tokens::of(ui);
     let mut send = false;
     let mut cancel = false;
     form_frame(ui, |ui| {
         let Some(form) = app.password_form.as_mut() else {
             return;
         };
-        widgets::setting_label(
-            ui,
-            &format!("Sign in to {label}"),
-            &format!(
-                "{hint} DriveCraft gives your password to rclone for the sign-in only. \
-                 It does not keep it."
-            ),
+        ui.label(
+            RichText::new(format!("Sign in to {label}"))
+                .font(semibold(15.0))
+                .color(t.text),
         );
+        ui.add(egui::Label::new(RichText::new(*hint).font(regular(13.0)).color(t.text_dim)).wrap());
+        if computer_wins {
+            form_note(
+                ui,
+                icons::LAPTOP,
+                "This computer is the master",
+                &format!(
+                    "{label} keeps no modification times. When a file is different on \
+                     this computer and online, the copy on this computer wins."
+                ),
+            );
+        }
+        form_note(
+            ui,
+            icons::LOCK,
+            "DriveCraft does not save your password",
+            "rclone uses it on this computer for the sign-in only. Then DriveCraft \
+             deletes it. DriveCraft has no server, so nothing goes to DriveCraft.",
+        );
+        ui.add_space(2.0);
         let mut enter = false;
         if !again {
             let user = labelled_field(ui, user_label, &mut form.user, false);

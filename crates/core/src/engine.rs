@@ -458,6 +458,7 @@ impl Engine {
             }
             self.save();
         }
+        self.forget_stale_passwords();
         self.refresh_about_all();
         self.check_all_local_folders();
         loop {
@@ -1007,6 +1008,51 @@ impl Engine {
                 None,
                 format!("Cannot remove the password from the rclone file: {e:#}"),
             );
+        }
+    }
+
+    /// A sign-in that did not end (DriveCraft quit or crashed during it) can
+    /// leave a password in the rclone file. At each start, DriveCraft
+    /// removes it, and removes the remote of a new account that never
+    /// connected. So the promise "DriveCraft does not save your password"
+    /// holds also after a crash.
+    fn forget_stale_passwords(&mut self) {
+        let Ok(dump) = self.rc.call("config/dump", json!({})) else {
+            return;
+        };
+        let Some(remotes) = dump.as_object() else {
+            return;
+        };
+        for (name, values) in remotes {
+            let Some(p) = values["type"].as_str().and_then(crate::providers::provider) else {
+                continue;
+            };
+            let SignIn::Password {
+                password_key, code, ..
+            } = p.sign_in
+            else {
+                continue;
+            };
+            let keys: Vec<&str> = [Some(password_key), code.map(|(key, _)| key)]
+                .into_iter()
+                .flatten()
+                .filter(|k| values.get(*k).is_some())
+                .collect();
+            if keys.is_empty() {
+                continue;
+            }
+            let result = if self.settings.account(name).is_some() {
+                self.rc
+                    .call("config/unset", json!({ "name": name, "keys": keys }))
+            } else {
+                self.rc.call("config/delete", json!({ "name": name }))
+            };
+            if let Err(e) = result {
+                self.error(
+                    None,
+                    format!("Cannot remove a password from the rclone file: {e:#}"),
+                );
+            }
         }
     }
 

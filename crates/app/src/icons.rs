@@ -21,6 +21,7 @@ pub const FOLDER_OPEN: &str = "\u{e247}";
 pub const HOUSE: &str = "\u{e0f5}";
 pub const INFO: &str = "\u{e0f9}";
 pub const LAPTOP: &str = "\u{e1cd}";
+pub const LOCK: &str = "\u{e10b}";
 pub const LIST_RESTART: &str = "\u{e452}";
 pub const COPY: &str = "\u{e09e}";
 pub const LOG_OUT: &str = "\u{e10e}";
