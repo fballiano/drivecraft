@@ -47,19 +47,14 @@ so you install nothing else.
 - **In the tray.** DriveCraft runs in the menu bar or the system tray, like
   the official apps.
 
-## Compare
+## Built on rclone, written in Rust
 
-| | DriveCraft | Official apps | Insync | onedrive (abraunegg) | rclone |
-|---|---|---|---|---|---|
-| Open source | Yes | No | No | Yes | Yes |
-| Price | Free | Free | Paid | Free | Free |
-| Platforms | macOS, Windows, Linux | macOS, Windows; Linux for some clouds | macOS, Windows, Linux | Linux | macOS, Windows, Linux |
-| Clouds | 7, in one app | One app for each cloud | Google Drive, OneDrive, Dropbox | OneDrive | More than 70 |
-| App with a window and a tray icon | Yes | Yes | Yes | No, command line | No, command line |
-| Selective sync | Yes | Yes | Yes | Yes, in a file | Yes, with filter rules |
-| Real files on the disk | Yes | Placeholders by default | Yes | Yes | Yes |
+DriveCraft does not write a new sync engine. It puts a simple app on top of a tool that people already trust.
 
-This table shows the state in November 2026. If something is wrong, [open an issue](https://github.com/fballiano/drivecraft/issues).
+- **rclone does the sync.** [rclone](https://rclone.org) is an open source tool for more than 70 cloud storage services. Many people use it every day to move and sync their files. DriveCraft uses its two-way sync and its sign-in for each cloud.
+- **rclone is included.** Each package contains a tested version of rclone. DriveCraft uses its own rclone configuration, so it never changes your own rclone accounts.
+- **One Rust code base.** The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors.
+- **A small, native app.** The window uses [egui](https://github.com/emilk/egui), a fast user interface library for Rust. The app does not include a web browser, so it starts quickly and uses little memory.
 
 ## Install
 

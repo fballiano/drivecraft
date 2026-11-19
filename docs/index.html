@@ -20,14 +20,14 @@
     --chrome: #F6F6F8; --card: #FCFCFD; --border: #DEDEE4; --field: #F2F2F5;
     --text: #18181C; --dim: #60606A; --faint: #9696A0;
     --accent: #6C5CE7; --accent-text: #5040C8; --accent-soft: rgba(108, 92, 231, .10);
-    --primary-bg: #141418; --primary-text: #FFFFFF; --success: #1E9E5A;
+    --primary-bg: #141418; --primary-text: #FFFFFF;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --chrome: #141415; --card: #1A1A1C; --border: #28282C; --field: #232326;
       --text: #ECECF0; --dim: #96969E; --faint: #606068;
       --accent: #8B7CF6; --accent-text: #D6D0FF; --accent-soft: rgba(139, 124, 246, .14);
-      --primary-bg: #F6F6F8; --primary-text: #0C0C0E; --success: #5CCC8C;
+      --primary-bg: #F6F6F8; --primary-text: #0C0C0E;
     }
   }
   * { box-sizing: border-box; }
@@ -39,8 +39,13 @@
   a { color: var(--accent-text); }
   code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .topbar a { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 600; }
+  .topbar .github { color: var(--dim); font-weight: 500; }
+  .topbar .github:hover { color: var(--text); }
+  .topbar svg { width: 22px; height: 22px; }
   header.hero {
-    text-align: center; padding: 72px 0 40px;
+    text-align: center; padding: 24px 0 40px;
     background: radial-gradient(ellipse 70% 60% at 50% 0%, var(--accent-soft), transparent);
   }
   .hero img.icon { width: 96px; height: 96px; }
@@ -64,6 +69,7 @@
   h2 { font-size: 28px; letter-spacing: -0.01em; margin: 0 0 8px; }
   .lead { color: var(--dim); margin: 0 0 24px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; }
   .card h3 { margin: 0 0 6px; font-size: 17px; }
   .card p { margin: 0; color: var(--dim); font-size: 15px; }
@@ -73,13 +79,6 @@
     padding: 6px 16px; font-weight: 500;
   }
   .providers span.soon { color: var(--faint); border-style: dashed; }
-  .table { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
-  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 15px; }
-  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  tr:last-child td { border-bottom: 0; }
-  thead th { font-weight: 600; background: var(--field); }
-  th.us, td.us { background: var(--accent-soft); font-weight: 600; }
-  td.yes { color: var(--success); }
   .note { color: var(--faint); font-size: 14px; margin-top: 10px; }
   pre {
     background: var(--card); border: 1px solid var(--border); border-radius: 8px;
@@ -87,13 +86,24 @@
   }
   footer { padding: 56px 0 48px; color: var(--faint); font-size: 14px; text-align: center; }
   footer a { color: var(--dim); }
+  .footer-github { display: inline-flex; align-items: center; gap: 6px; }
+  .footer-github svg { width: 16px; height: 16px; }
   @media (max-width: 600px) {
     .wrap { padding: 0 16px; }
-    header.hero { padding-top: 48px; }
+    header.hero { padding-top: 16px; }
   }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></symbol>
+</svg>
+<nav class="topbar wrap">
+  <a class="brand" href="./"><img src="icon.png" alt="" width="28" height="28">DriveCraft</a>
+  <a class="github" href="https://github.com/fballiano/drivecraft" aria-label="DriveCraft on GitHub">
+    <svg aria-hidden="true"><use href="#github"/></svg><span>GitHub</span>
+  </a>
+</nav>
 <header class="hero">
   <div class="wrap">
     <img class="icon" src="icon.png" alt="">
@@ -105,8 +115,8 @@
         Download
       </a>
       <a class="button" href="https://github.com/fballiano/drivecraft">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
-        Source code
+        <svg aria-hidden="true"><use href="#github"/></svg>
+        View on GitHub
       </a>
     </div>
     <p class="platforms">Free and open source · macOS, Windows, and Linux · MIT or Apache 2.0</p>
@@ -126,7 +136,7 @@
       <div class="card"><h3>Real files</h3><p>Your files are real copies on your disk, not placeholders. They open without a connection.</p></div>
       <div class="card"><h3>You choose first</h3><p>After a sign-in, nothing downloads until you select the folders and start the first sync.</p></div>
       <div class="card"><h3>Safe by design</h3><p>A missing folder stops the sync, so it cannot delete your files online. A file that changed on both sides keeps both versions.</p></div>
-      <div class="card"><h3>Nothing else to install</h3><p>DriveCraft includes rclone, the tested sync engine for more than 70 clouds. You do not need the command line.</p></div>
+      <div class="card"><h3>Free and open source</h3><p>Use DriveCraft at no cost, under the MIT or Apache 2.0 license. Read the code, report problems, or send improvements on GitHub.</p></div>
     </div>
   </section>
 
@@ -141,25 +151,26 @@
   </section>
 
   <section>
-    <h2>Compare</h2>
-    <p class="lead">How DriveCraft compares with other ways to sync your cloud files.</p>
-    <div class="table">
-      <table>
-        <thead>
-          <tr><th></th><th class="us">DriveCraft</th><th>Official apps</th><th>Insync</th><th>onedrive (abraunegg)</th><th>rclone</th></tr>
-        </thead>
-        <tbody>
-          <tr><th>Open source</th><td class="us yes">Yes</td><td>No</td><td>No</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
-          <tr><th>Price</th><td class="us">Free</td><td>Free</td><td>Paid</td><td>Free</td><td>Free</td></tr>
-          <tr><th>Platforms</th><td class="us">macOS, Windows, Linux</td><td>macOS, Windows; Linux for some clouds</td><td>macOS, Windows, Linux</td><td>Linux</td><td>macOS, Windows, Linux</td></tr>
-          <tr><th>Clouds</th><td class="us">7, in one app</td><td>One app for each cloud</td><td>Google Drive, OneDrive, Dropbox</td><td>OneDrive</td><td>More than 70</td></tr>
-          <tr><th>App with a window and a tray icon</th><td class="us yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>No, command line</td><td>No, command line</td></tr>
-          <tr><th>Selective sync</th><td class="us yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Yes, in a file</td><td>Yes, with filter rules</td></tr>
-          <tr><th>Real files on the disk</th><td class="us yes">Yes</td><td>Placeholders by default</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
-        </tbody>
-      </table>
+    <h2>Built on rclone, written in Rust</h2>
+    <p class="lead">DriveCraft does not write a new sync engine. It puts a simple app on top of a tool that people already trust.</p>
+    <div class="grid two">
+      <div class="card">
+        <h3>rclone does the sync</h3>
+        <p><a href="https://rclone.org">rclone</a> is an open source tool for more than 70 cloud storage services. Many people use it every day to move and sync their files. DriveCraft uses its two-way sync and its sign-in for each cloud.</p>
+      </div>
+      <div class="card">
+        <h3>rclone is included</h3>
+        <p>Each package contains a tested version of rclone. The build verifies its SHA-256 checksum. DriveCraft uses its own rclone configuration, so it never changes your own rclone accounts.</p>
+      </div>
+      <div class="card">
+        <h3>One Rust code base</h3>
+        <p>DriveCraft is written in Rust. The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors.</p>
+      </div>
+      <div class="card">
+        <h3>A small, native app</h3>
+        <p>The window uses egui, a fast user interface library for Rust. The app does not include a web browser, so it starts quickly and uses little memory.</p>
+      </div>
     </div>
-    <p class="note">This table shows the state in November 2026. If something is wrong, <a href="https://github.com/fballiano/drivecraft/issues">tell us</a>.</p>
   </section>
 
   <section>
@@ -187,7 +198,7 @@ brew install --cask drivecraft</code></pre>
 
 <footer class="wrap">
   <p>DriveCraft is made by <a href="https://fabrizioballiano.com">Fabrizio Balliano</a>. It uses <a href="https://rclone.org">rclone</a>, the <a href="https://rsms.me/inter/">Inter</a> font, and <a href="https://lucide.dev">Lucide</a> icons.</p>
-  <p><a href="https://github.com/sponsors/fballiano">Sponsor the project</a> · <a href="https://github.com/fballiano/drivecraft/issues">Report a problem</a></p>
+  <p><a class="footer-github" href="https://github.com/fballiano/drivecraft"><svg aria-hidden="true"><use href="#github"/></svg>Source code on GitHub</a> · <a href="https://github.com/sponsors/fballiano">Sponsor the project</a> · <a href="https://github.com/fballiano/drivecraft/issues">Report a problem</a></p>
 </footer>
 </body>
 </html>
