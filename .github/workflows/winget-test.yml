@@ -1,0 +1,93 @@
+name: winget test
+
+# Tests the winget package of a published release on a Windows runner:
+# validates the manifests, installs with them, starts DriveCraft, starts it a
+# second time, and uninstalls. The runner is a VM without a GPU, like the
+# validation VM of winget-pkgs.
+#
+# Start it by hand: Actions -> winget test -> Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The release version, for example 0.6.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install winget
+        run: |
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Force | Out-Null
+            Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
+            Repair-WinGetPackageManager -AllUsers -Latest
+          }
+          winget --version
+
+      - name: Write the manifests
+        shell: bash
+        run: scripts/winget.sh "$VERSION"
+
+      - name: Validate the manifests
+        run: winget validate --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION"
+
+      - name: Install with the manifests
+        run: |
+          winget settings --enable LocalManifestFiles
+          winget install --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION" `
+            --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget install failed: $LASTEXITCODE" }
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\DriveCraft\DriveCraft.exe"
+          if (-not (Test-Path $exe)) { throw "$exe is missing" }
+          Get-ChildItem (Split-Path $exe) | Format-Table Name, Length
+          "EXE=$exe" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Start DriveCraft
+        run: |
+          $p = Start-Process -FilePath $env:EXE -PassThru
+          Start-Sleep -Seconds 20
+          $p.Refresh()
+          $settings = Join-Path $env:APPDATA "drivecraft"
+          Write-Host "== Files in $settings"
+          Get-ChildItem $settings -ErrorAction SilentlyContinue | Format-Table Name, Length
+          Write-Host "== gpu.txt"
+          Get-Content (Join-Path $settings "gpu.txt") -ErrorAction SilentlyContinue
+          Write-Host "== Processes"
+          Get-Process DriveCraft, rclone -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+          if ($p.HasExited) {
+            throw "DriveCraft exited after less than 20 seconds, with code $($p.ExitCode)"
+          }
+          Write-Host "DriveCraft runs after 20 seconds."
+
+      - name: Start a second instance
+        run: |
+          $second = Start-Process -FilePath $env:EXE -PassThru
+          if (-not $second.WaitForExit(15000)) { throw "The second instance did not exit." }
+          Write-Host "The second instance exited with code $($second.ExitCode)."
+          $running = @(Get-Process DriveCraft -ErrorAction SilentlyContinue)
+          if ($running.Count -ne 1) { throw "Expected 1 DriveCraft process, found $($running.Count)." }
+
+      - name: Uninstall
+        run: |
+          winget uninstall --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION" `
+            --accept-source-agreements --disable-interactivity
+          Start-Sleep -Seconds 5
+          $dir = Split-Path $env:EXE
+          if (Test-Path $env:EXE) { throw "$env:EXE is still there." }
+          Write-Host "Uninstalled. Left in ${dir}:"
+          Get-ChildItem $dir -ErrorAction SilentlyContinue | Format-Table Name
+          Get-Process DriveCraft, rclone -ErrorAction SilentlyContinue | Format-Table Id, ProcessName
