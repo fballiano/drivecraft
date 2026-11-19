@@ -76,6 +76,15 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.2" date="2026-11-19">
+      <description>
+        <ul>
+          <li>Windows: an installer for your user, with a shortcut in the Start menu.</li>
+          <li>Linux: a desktop file, an icon, and AppStream metadata.</li>
+          <li>Flatpak: DriveCraft finds the folders of other cloud clients, and moves a folder to the Trash of the system.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-11-19">
       <description>
         <p>A click on the tray icon hides the window when the window is in front.</p>

@@ -97,9 +97,12 @@ opens like any other application.
 Download the package for your computer (x64 or Arm) from the
 [latest release](https://github.com/fballiano/drivecraft/releases/latest):
 
-- **Windows:** a zip file. Extract it, and start `DriveCraft.exe`. Keep
-  `rclone.exe` in the same folder. The app has no signature yet, so Windows
-  can show a warning on the first start.
+- **Windows:** the installer (`DriveCraft-<version>-windows-x64-setup.exe`,
+  or `arm64` for Arm). It installs DriveCraft for your user, without
+  administrator rights, and adds it to the Start menu. You can also use the
+  zip file: extract it, and start `DriveCraft.exe`. Keep `rclone.exe` in the
+  same folder. The app has no signature yet, so Windows can show a warning
+  on the first start.
 - **Linux:** a `tar.gz` file. Extract it, and start `drivecraft`. Keep
   `rclone` in the same folder. Linux has no tray icon yet.
 
