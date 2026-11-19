@@ -76,7 +76,7 @@
     <control>keyboard</control>
   </supports>
   <releases>
-    <release version="0.1.2" date="2026-11-19">
+    <release version="0.1.3" date="2026-11-19">
       <description>
         <ul>
           <li>Windows: an installer for your user, with a shortcut in the Start menu.</li>
