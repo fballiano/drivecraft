@@ -310,6 +310,9 @@ struct RunningSync {
     newly_blocked: usize,
     /// The original paths (NFC) of the conflict copies of this sync.
     conflicts: HashSet<String>,
+    /// True when the provider stopped a transfer at the transfer limit of
+    /// the account (`transfer_limit_hint`).
+    transfer_limit: bool,
 }
 
 impl RunningSync {
@@ -326,6 +329,7 @@ impl RunningSync {
             live_errors: HashSet::new(),
             newly_blocked: 0,
             conflicts: HashSet::new(),
+            transfer_limit: false,
         }
     }
 }
@@ -1702,6 +1706,7 @@ impl Engine {
             r.last_sync = Some(Instant::now());
         }
         if !status["success"].as_bool().unwrap_or(false) {
+            let transfer_limit = self.sync.as_ref().is_some_and(|s| s.transfer_limit);
             let newly_blocked = self.sync.take().map_or(0, |s| s.newly_blocked);
             if newly_blocked > 0 {
                 // The filter rules exclude the new blocked files now. Their
@@ -1740,7 +1745,9 @@ impl Engine {
                 self.start_sync(&id);
                 return;
             }
-            let message = match transfer_limit_hint(err) {
+            let hint =
+                (transfer_limit || transfer_limit_hint(err).is_some()).then_some(TRANSFER_LIMIT);
+            let message = match hint {
                 Some(hint) => format!("The sync stopped: {hint}"),
                 None => format!("The sync failed: {err}"),
             };
@@ -1857,6 +1864,11 @@ impl Engine {
                          example a GarageBand or Logic project. DriveCraft skips it. It stays \
                          in iCloud."
                     ));
+                }
+            } else if let Some(hint) = transfer_limit_hint(&err) {
+                if !sync.transfer_limit {
+                    sync.transfer_limit = true;
+                    errors.push(format!("Cannot copy \"{name}\": {hint}"));
                 }
             } else if sync.live_errors.insert(name.clone()) {
                 errors.push(format!("Cannot sync \"{name}\": {err}"));
@@ -2195,12 +2207,14 @@ fn is_blocked_error(error: &str) -> bool {
 /// A clear text for a provider that stopped the transfers because the
 /// transfer limit of the account is used up (MEGA: HTTP 509).
 fn transfer_limit_hint(error: &str) -> Option<&'static str> {
-    error.contains("509 Bandwidth Limit Exceeded").then_some(
-        "the provider stopped the download, because the transfer limit of your account \
-         is used up. A free MEGA account gets more transfer after some hours. DriveCraft \
-         tries again at each sync, and continues where it stopped.",
-    )
+    error
+        .contains("509 Bandwidth Limit Exceeded")
+        .then_some(TRANSFER_LIMIT)
 }
+
+const TRANSFER_LIMIT: &str = "the provider stopped the download, because the transfer limit of \
+     your account is used up. A free MEGA account gets more transfer after some hours. \
+     DriveCraft tries again at each sync, and continues where it stopped.";
 
 /// The lock file in a bisync error "prior lock file found: <path>". Only a
 /// `.lck` file in a `bisync` folder.
