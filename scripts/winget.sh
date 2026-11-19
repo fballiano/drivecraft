@@ -23,7 +23,12 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 sha() {
     curl -sSfL -o "$tmp/$1" "$base/$1"
-    shasum -a 256 "$tmp/$1" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]'
+    # sha256sum on Linux and in Git Bash; shasum on macOS.
+    if command -v sha256sum >/dev/null; then
+        sha256sum "$tmp/$1"
+    else
+        shasum -a 256 "$tmp/$1"
+    fi | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]'
 }
 x64="DriveCraft-$version-windows-x64-setup.exe"
 arm64="DriveCraft-$version-windows-arm64-setup.exe"
