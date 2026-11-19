@@ -155,7 +155,7 @@ To render each page with demo data to `target/screenshots/`, run:
 cargo test -p drivecraft screenshots -- --ignored
 ```
 
-To make `docs/demo.gif` again, run `scripts/demo-gif.sh` (it needs gifski). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
+To make `docs/demo.gif` again, run `scripts/demo-gif.sh` (it needs ImageMagick). To make the store screenshots in `docs/screenshots` again, run `scripts/store-screenshots.sh` (it needs ImageMagick). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
 
 ## Change from the official app
 
