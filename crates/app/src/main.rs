@@ -143,6 +143,13 @@ enum Status {
     UpToDate,
 }
 
+/// The state of the sign-out dialog.
+struct SignOut {
+    account: String,
+    /// True: move the folder to the Trash after a last sync.
+    trash: bool,
+}
+
 /// The sync that runs now.
 struct Syncing {
     account: String,
@@ -190,7 +197,8 @@ struct App {
     /// The account name in the Account tab, while the user edits it.
     form_name: Option<(String, String)>,
     /// The account that waits for a second click on "Sign out".
-    confirm_sign_out: Option<String>,
+    /// The sign-out dialog, while it is open.
+    sign_out: Option<SignOut>,
 }
 
 impl App {
@@ -250,7 +258,7 @@ impl App {
             activity: VecDeque::new(),
             form_interval: 10,
             form_name: None,
-            confirm_sign_out: None,
+            sign_out: None,
         }
     }
 
@@ -874,7 +882,10 @@ mod preview {
             shoot("account-settings", account, dark);
             let mut confirm = demo_app(personal());
             confirm.account_tab = AccountTab::Account;
-            confirm.confirm_sign_out = Some("onedrive".into());
+            confirm.sign_out = Some(SignOut {
+                account: "onedrive".into(),
+                trash: true,
+            });
             shoot("account-sign-out", confirm, dark);
             shoot(
                 "account-first-sync",

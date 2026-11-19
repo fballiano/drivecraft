@@ -62,7 +62,11 @@ It works like the official OneDrive client before "Files On-Demand", or like sel
   The **Account** tab shows the folders that are only on this computer. You can sync them there later.
   Hidden folders (names that start with ".") are not shown.
 - DriveCraft syncs each account at an interval (10 minutes by default), and when you click **Sync now**. Only one sync runs at a time; the accounts take turns.
-- **Sign out** removes the account from DriveCraft. Its folder and the files in it stay on this computer.
+- **Sign out** removes the account from DriveCraft. A dialog asks what happens to its folder:
+  - **Keep the folder on this computer**: the folder and its files stay. They do not sync any more.
+  - **Move the folder to the Trash**: DriveCraft syncs one last time, then moves the folder to the Trash (the Recycle Bin on Windows). If the last sync fails, the account and the folder stay.
+    The dialog names the folders that are only on this computer, because they go to the Trash too.
+    An account that never synced moves its folder to the Trash only when the folder is empty.
 - **Activity** shows each file that a sync changed: downloaded, uploaded, deleted on this computer, or deleted online.
   DriveCraft compares lists of the synced local files before and after each sync. It keeps the last list of each account in `snapshot-<id>.json` in the settings folder.
 - OneDrive and Google Drive block the download of files that they mark as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.

@@ -9,8 +9,6 @@ pub struct Provider {
     pub id: &'static str,
     /// The name of the service, for example "Google Drive".
     pub label: &'static str,
-    /// The company that runs the sign-in, for "Sign in with …".
-    pub company: &'static str,
     /// rclone options for `config create`, as key and value.
     pub options: &'static [(&'static str, &'static str)],
     /// False hides the sign-in button. Existing accounts continue to work.
@@ -21,14 +19,12 @@ pub const PROVIDERS: &[Provider] = &[
     Provider {
         id: "onedrive",
         label: "OneDrive",
-        company: "Microsoft",
         options: &[],
         available: true,
     },
     Provider {
         id: "drive",
         label: "Google Drive",
-        company: "Google",
         // Full access to "My Drive". Google Docs, Sheets, and Slides are not
         // real files: a local export of them is not safe in a two-way sync
         // (deleting the export deletes the document). They stay only online.
@@ -42,14 +38,12 @@ pub const PROVIDERS: &[Provider] = &[
     Provider {
         id: "dropbox",
         label: "Dropbox",
-        company: "Dropbox",
         options: &[],
         available: true,
     },
     Provider {
         id: "box",
         label: "Box",
-        company: "Box",
         options: &[],
         available: true,
     },

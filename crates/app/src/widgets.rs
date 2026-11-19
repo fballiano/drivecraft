@@ -260,11 +260,77 @@ pub fn icon_circle(ui: &mut Ui, icon: &str, diameter: f32, fg: Color32, bg: Colo
 }
 
 /// A thin progress bar. `None` shows a moving bar for unknown progress.
-/// A button that starts the sign-in to a provider: a cloud icon, the name
-/// of the service, and "Sign in with <company>" under it.
-pub fn provider_button(ui: &mut Ui, width: f32, label: &str, company: &str) -> Response {
+/// One option of a choice, as a card: a radio dot, a title, and a
+/// description that wraps. The selected card has the accent color.
+pub fn choice(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
     let t = Tokens::of(ui);
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 64.0), Sense::click());
+    let width = ui.available_width();
+    let text_width = width - 44.0 - 16.0;
+    let p = ui.painter();
+    let title_galley = p.layout(title.to_string(), medium(13.5), t.text, text_width);
+    let desc_galley = p.layout(
+        description.to_string(),
+        regular(12.5),
+        t.text_dim,
+        text_width,
+    );
+    let height = 14.0 + title_galley.size().y + 3.0 + desc_galley.size().y + 14.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, title));
+    let p = ui.painter();
+    let (fill, border) = if selected {
+        (t.accent_soft, t.accent)
+    } else if resp.hovered() {
+        (t.hover, t.card_border)
+    } else {
+        (t.card, t.card_border)
+    };
+    p.rect_filled(rect, CornerRadius::same(RADIUS), fill);
+    p.rect_stroke(
+        rect,
+        CornerRadius::same(RADIUS),
+        Stroke::new(1.0, border),
+        egui::StrokeKind::Inside,
+    );
+    let dot = pos2(
+        rect.left() + 22.0,
+        rect.top() + 14.0 + title_galley.size().y / 2.0,
+    );
+    p.circle_stroke(
+        dot,
+        7.5,
+        Stroke::new(1.5, if selected { t.accent } else { t.text_faint }),
+    );
+    if selected {
+        p.circle_filled(dot, 4.0, t.accent);
+    }
+    let left = rect.left() + 44.0;
+    let title_height = title_galley.size().y;
+    p.galley(pos2(left, rect.top() + 14.0), title_galley, t.text);
+    p.galley(
+        pos2(left, rect.top() + 14.0 + title_height + 3.0),
+        desc_galley,
+        t.text_dim,
+    );
+    resp.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A button for an action that removes something: white text on red.
+pub fn danger(ui: &mut Ui, enabled: bool, text: &str) -> Response {
+    let t = Tokens::of(ui);
+    let button = egui::Button::new(mixed(text, medium(13.0), Color32::WHITE))
+        .fill(t.danger)
+        .corner_radius(CornerRadius::same(RADIUS))
+        .min_size(vec2(0.0, 32.0));
+    ui.add_enabled(enabled, button)
+        .on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// A button that starts the sign-in to a provider: a cloud icon and the
+/// name of the service.
+pub fn provider_button(ui: &mut Ui, width: f32, label: &str) -> Response {
+    let t = Tokens::of(ui);
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 48.0), Sense::click());
     resp.widget_info(|| {
         egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Sign in to {label}"))
     });
@@ -281,30 +347,21 @@ pub fn provider_button(ui: &mut Ui, width: f32, label: &str, company: &str) -> R
         Stroke::new(1.0, border),
         egui::StrokeKind::Inside,
     );
-    let icon_center = pos2(rect.left() + 30.0, rect.center().y);
-    p.circle_filled(icon_center, 16.0, t.accent_soft);
+    let icon_center = pos2(rect.left() + 26.0, rect.center().y);
+    p.circle_filled(icon_center, 14.0, t.accent_soft);
     p.text(
         icon_center,
         Align2::CENTER_CENTER,
         crate::icons::CLOUD,
-        icon_font(16.0),
+        icon_font(15.0),
         t.accent,
     );
-    let clip = p.with_clip_rect(rect.shrink(4.0));
-    let left = rect.left() + 56.0;
-    clip.text(
-        pos2(left, rect.center().y - 9.0),
+    p.with_clip_rect(rect.shrink(4.0)).text(
+        pos2(rect.left() + 50.0, rect.center().y),
         Align2::LEFT_CENTER,
         label,
         medium(14.0),
         t.text,
-    );
-    clip.text(
-        pos2(left, rect.center().y + 10.0),
-        Align2::LEFT_CENTER,
-        format!("Sign in with {company}"),
-        regular(12.0),
-        t.text_dim,
     );
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }

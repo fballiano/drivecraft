@@ -31,9 +31,13 @@ pub enum Command {
     AddAccount {
         provider: String,
     },
-    /// Signs out: removes the account and its rclone remote. The local
-    /// folder and its files stay on this computer.
-    RemoveAccount(String),
+    /// Signs out: removes the account and its rclone remote. With
+    /// `trash_folder`, a last sync runs first; only after it succeeds does
+    /// the local folder go to the Trash. Otherwise the folder stays.
+    RemoveAccount {
+        account: String,
+        trash_folder: bool,
+    },
     UpdatePrefs(Prefs),
     /// Renames an account, or gives it a different local folder.
     UpdateAccount {
@@ -301,6 +305,9 @@ struct Engine {
     /// as soon as no sync runs.
     restart_rclone: bool,
     last_folder_check: Instant,
+    /// The account that signs out after its last sync, and moves its folder
+    /// to the Trash. See `Command::RemoveAccount`.
+    removing: Option<String>,
 }
 
 impl Engine {
@@ -351,6 +358,7 @@ impl Engine {
             runtimes,
             restart_rclone: false,
             last_folder_check: Instant::now(),
+            removing: None,
         })
     }
 
@@ -410,7 +418,10 @@ impl Engine {
             Command::AccountResult(Err(e)) => {
                 self.error(None, format!("Cannot connect the account: {e}"))
             }
-            Command::RemoveAccount(id) => self.report(|s| s.remove_account(&id)),
+            Command::RemoveAccount {
+                account,
+                trash_folder,
+            } => self.report(|s| s.sign_out(&account, trash_folder)),
             Command::UpdatePrefs(p) => self.update_prefs(p),
             Command::UpdateAccount {
                 account,
@@ -590,14 +601,65 @@ impl Engine {
         Ok(())
     }
 
-    /// Signs out of an account. The local folder and its files stay.
-    fn remove_account(&mut self, id: &str) -> Result<()> {
+    /// Signs out of an account at once, or after a last sync when the
+    /// folder goes to the Trash.
+    fn sign_out(&mut self, id: &str, trash_folder: bool) -> Result<()> {
+        let Some(account) = self.settings.account(id).cloned() else {
+            return Ok(());
+        };
+        if !trash_folder {
+            return self.remove_account(id, false);
+        }
+        if account.awaiting_selection {
+            // Never synced: files in the folder are not online.
+            let empty = fs::read_dir(&account.local_dir).map_or(true, |mut d| d.next().is_none());
+            if !empty {
+                bail!(
+                    "\"{}\" never synced, so the files in {} are not online. \
+                     DriveCraft keeps the folder. Sign out with \"Keep the folder\".",
+                    account.name,
+                    account.local_dir.display()
+                );
+            }
+            return self.remove_account(id, true);
+        }
+        self.removing = Some(id.to_string());
+        self.log(
+            Some(id),
+            format!(
+                "DriveCraft syncs \"{}\" one last time. Then it signs out and moves the \
+                 folder to the Trash.",
+                account.name
+            ),
+        );
+        self.mark_due(id);
+        Ok(())
+    }
+
+    /// Removes an account. Its folder stays, or goes to the Trash.
+    fn remove_account(&mut self, id: &str, trash_folder: bool) -> Result<()> {
         if self.sync.as_ref().is_some_and(|s| s.account == id) {
             bail!("Wait until the sync of this account is complete, then sign out.");
         }
         let Some(account) = self.settings.account(id).cloned() else {
             return Ok(());
         };
+        let trashed = trash_folder && account.local_dir.exists();
+        if trashed {
+            // The same checks as before each sync: never the home folder,
+            // the disk root, or a folder of a different app or account.
+            check_local_dir(
+                &account.local_dir,
+                &home(),
+                &self.settings.other_account_dirs(id),
+            )?;
+            move_to_trash(&account.local_dir).with_context(|| {
+                format!(
+                    "Cannot move {} to the Trash. DriveCraft did not sign out",
+                    account.local_dir.display()
+                )
+            })?;
+        }
         self.settings.accounts.retain(|a| a.id != id);
         self.runtimes.remove(id);
         let filters = Settings::filters_file(id);
@@ -610,13 +672,20 @@ impl Engine {
             self.error(None, format!("Cannot remove the rclone remote: {e:#}"));
         }
         self.save();
+        let folder = if trashed {
+            format!(
+                "Its folder {} is in the Trash.",
+                account.local_dir.display()
+            )
+        } else {
+            format!(
+                "Its folder {} stays on this computer.",
+                account.local_dir.display()
+            )
+        };
         self.log(
             None,
-            format!(
-                "You signed out of \"{}\". Its folder {} stays on this computer.",
-                account.name,
-                account.local_dir.display()
-            ),
+            format!("You signed out of \"{}\". {folder}", account.name),
         );
         Ok(())
     }
@@ -764,6 +833,20 @@ impl Engine {
         }
         if self.last_folder_check.elapsed() >= Duration::from_secs(5) {
             self.check_all_local_folders();
+        }
+        // An account that signs out syncs first, before the others.
+        if let Some(id) = self.removing.clone() {
+            // start_sync does nothing for these, so do not wait for ever.
+            if self
+                .settings
+                .account(&id)
+                .is_none_or(|a| a.awaiting_selection)
+            {
+                self.removing = None;
+            } else {
+                self.start_sync(&id);
+                return;
+            }
         }
         let interval = Duration::from_secs(self.settings.sync_interval_minutes.max(1) * 60);
         // One sync at a time: the first account that is due starts.
@@ -1170,6 +1253,25 @@ impl Engine {
             message,
         });
         self.emit.send(Event::Settings(self.settings.clone()));
+        if self.removing.as_deref() == Some(id) {
+            self.removing = None;
+            let name = self
+                .settings
+                .account(id)
+                .map(|a| a.name.clone())
+                .unwrap_or_default();
+            if ok {
+                self.report(|s| s.remove_account(id, true));
+                return;
+            }
+            self.error(
+                Some(id),
+                format!(
+                    "DriveCraft did not sign out of \"{name}\", because the last sync \
+                     failed. The account and its folder stay."
+                ),
+            );
+        }
         if ok {
             self.refresh_about(id);
         }
@@ -1249,6 +1351,21 @@ impl Engine {
             text,
         });
     }
+}
+
+/// Moves a file or folder to the Trash (the Recycle Bin on Windows).
+fn move_to_trash(path: &Path) -> Result<()> {
+    #[allow(unused_mut)]
+    let mut ctx = trash::TrashContext::default();
+    // The default asks Finder through AppleScript, and macOS then asks the
+    // user for a permission. NSFileManager needs no permission.
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    ctx.delete(path)?;
+    Ok(())
 }
 
 /// The synced local files of an account.

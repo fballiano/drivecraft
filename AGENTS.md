@@ -38,6 +38,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - DriveCraft uses its own `rclone.conf` in the settings folder (`--config` on every rclone call), never the user's default rclone file.
 - A resync never deletes, so only a resync may create the local folder.
 - Junk files (`.DS_Store` and others in `snapshot::JUNK`) are excluded from sync.
+- **Sign out with "Move the folder to the Trash"** runs a last sync first (`Engine::removing`); only a successful sync lets `remove_account` trash the folder, after `check_local_dir` again. Never trash the folder of an account that never synced unless it is empty. Use the `trash` crate with `NsFileManager` on macOS (the Finder method asks for an Automation permission).
 - Before you delete or overwrite anything on the user's machine, verify it: compare with OneDrive by hash (`rclone check`), and prefer `/usr/bin/trash` to `rm`.
 
 ## Gotchas

@@ -12,14 +12,14 @@ use drivecraft_core::{
 };
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Rect,
-    RichText, ScrollArea, Sense, Ui, pos2, vec2,
+    RichText, ScrollArea, Sense, Stroke, Ui, pos2, vec2,
 };
 
-use crate::theme::{RADIUS, Tokens, icon_font, medium, regular, semibold};
+use crate::theme::{RADIUS, RADIUS_LG, Tokens, icon_font, medium, regular, semibold};
 use crate::widgets::{self, card, card_title, list_card, page_header, primary, secondary};
 use crate::{
-    AccountTab, App, Appearance, DirNode, Entry, EntryKind, Page, Status, Syncing, Tree, dirs_home,
-    file_manager_name, human_bytes, icons, open_in_file_manager,
+    AccountTab, App, Appearance, DirNode, Entry, EntryKind, Page, SignOut, Status, Syncing, Tree,
+    dirs_home, file_manager_name, human_bytes, icons, open_in_file_manager,
 };
 
 // ---------------------------------------------------------------- layout
@@ -847,7 +847,7 @@ fn account_page(app: &mut App, ui: &mut Ui, account: &Account) {
     };
     if let Some(i) = widgets::segmented(ui, &items, selected) {
         app.account_tab = [AccountTab::Folders, AccountTab::Account][i];
-        app.confirm_sign_out = None;
+        app.sign_out = None;
     }
     ui.add_space(14.0);
     match app.account_tab {
@@ -932,7 +932,6 @@ fn first_sync_card(app: &mut App, ui: &mut Ui, account: &Account) {
 
 /// The Account tab: storage, the local folder, sync, and sign out.
 fn account_settings(app: &mut App, ui: &mut Ui, account: &Account) {
-    let t = Tokens::of(ui);
     let id = account.id.clone();
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         card(ui, |ui| {
@@ -1068,36 +1067,150 @@ fn account_settings(app: &mut App, ui: &mut Ui, account: &Account) {
                 },
             );
             widgets::separator(ui);
-            let confirming = app.confirm_sign_out.as_deref() == Some(id.as_str());
-            let description = if confirming {
-                "Select \"Sign out\" again to confirm."
-            } else {
-                "DriveCraft stops syncing this account. The folder and its files stay on \
-                 this computer."
-            };
-            setting_row(ui, "Sign out", description, |ui, _| {
-                if confirming {
-                    let button = egui::Button::new(widgets::mixed(
-                        &format!("{}  Sign out", icons::LOG_OUT),
-                        medium(13.0),
-                        Color32::WHITE,
-                    ))
-                    .fill(t.danger)
+            setting_row(
+                ui,
+                "Sign out",
+                "DriveCraft stops syncing this account. You select what happens to the folder.",
+                |ui, _| {
+                    if secondary(ui, true, &format!("{}  Sign out…", icons::LOG_OUT)).clicked() {
+                        app.sign_out = Some(SignOut {
+                            account: id.clone(),
+                            trash: false,
+                        });
+                    }
+                },
+            );
+        });
+    });
+    sign_out_dialog(app, ui, account);
+}
+
+/// Asks what happens to the folder of an account that signs out.
+fn sign_out_dialog(app: &mut App, ui: &mut Ui, account: &Account) {
+    let Some(trash) = app
+        .sign_out
+        .as_ref()
+        .filter(|s| s.account == account.id)
+        .map(|s| s.trash)
+    else {
+        return;
+    };
+    let t = Tokens::of(ui);
+    let provider = provider_label(&account.provider);
+    let busy = app
+        .syncing
+        .as_ref()
+        .is_some_and(|s| s.account == account.id);
+    // Folders that are not online: they go to the Trash with the rest.
+    let local: Vec<String> = account
+        .local_only
+        .iter()
+        .cloned()
+        .chain(
+            app.new_folders
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .collect();
+    let mut choice = trash;
+    let mut cancel = false;
+    let mut confirm = false;
+    let frame = Frame::new()
+        .fill(t.card)
+        .stroke(Stroke::new(1.0, t.card_border))
+        .corner_radius(CornerRadius::same(RADIUS_LG))
+        .inner_margin(Margin::same(24));
+    let modal = egui::Modal::new(Id::unique("sign-out"))
+        .frame(frame)
+        .show(ui.ctx(), |ui| {
+            ui.set_width(460.0);
+            ui.spacing_mut().item_spacing.y = 8.0;
+            ui.label(
+                RichText::new(format!("Sign out of {}?", account.name))
+                    .font(semibold(18.0))
+                    .color(t.text),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "DriveCraft stops syncing this account. Your files stay in {provider}."
+                ))
+                .font(regular(13.0))
+                .color(t.text_dim),
+            );
+            ui.add_space(6.0);
+            if widgets::choice(
+                ui,
+                !choice,
+                "Keep the folder on this computer",
+                &format!(
+                    "{} and its files stay as they are. They do not sync any more.",
+                    short_path(&account.local_dir)
+                ),
+            )
+            .clicked()
+            {
+                choice = false;
+            }
+            if widgets::choice(
+                ui,
+                choice,
+                "Move the folder to the Trash",
+                "DriveCraft syncs one last time, then moves the folder to the Trash. \
+                 If the sync fails, the account and the folder stay.",
+            )
+            .clicked()
+            {
+                choice = true;
+            }
+            if choice && !local.is_empty() {
+                ui.add_space(2.0);
+                Frame::new()
+                    .fill(t.warning_soft)
                     .corner_radius(CornerRadius::same(RADIUS))
-                    .min_size(vec2(0.0, 32.0));
-                    if ui.add_enabled(!busy, button).clicked() {
-                        app.engine.send(Command::RemoveAccount(id.clone()));
-                        app.confirm_sign_out = None;
-                    }
-                    if secondary(ui, true, "Cancel").clicked() {
-                        app.confirm_sign_out = None;
-                    }
-                } else if secondary(ui, !busy, &format!("{}  Sign out", icons::LOG_OUT)).clicked() {
-                    app.confirm_sign_out = Some(id.clone());
+                    .inner_margin(Margin::same(12))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(
+                            RichText::new(format!(
+                                "These folders are only on this computer. They go to the \
+                                 Trash too: {}.",
+                                local.join(", ")
+                            ))
+                            .font(regular(12.5))
+                            .color(t.text),
+                        );
+                    });
+            }
+            if busy && !choice {
+                ui.label(
+                    RichText::new("This account syncs now. Wait until the sync is complete.")
+                        .font(regular(12.5))
+                        .color(t.text_dim),
+                );
+            }
+            ui.add_space(10.0);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let label = format!("{}  Sign out", icons::LOG_OUT);
+                if widgets::danger(ui, !(busy && !choice), &label).clicked() {
+                    confirm = true;
+                }
+                if secondary(ui, true, "Cancel").clicked() {
+                    cancel = true;
                 }
             });
         });
-    });
+    if confirm {
+        app.engine.send(Command::RemoveAccount {
+            account: account.id.clone(),
+            trash_folder: choice,
+        });
+        app.sign_out = None;
+    } else if cancel || modal.should_close() {
+        app.sign_out = None;
+    } else if let Some(s) = &mut app.sign_out {
+        s.trash = choice;
+    }
 }
 
 fn folder_children(
@@ -1292,7 +1405,7 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
     egui::CentralPanel::default()
         .frame(Frame::new().fill(t.chrome))
         .show(ui, |ui| {
-            centered(ui, 400.0, |ui| {
+            centered(ui, 480.0, |ui| {
                 let icon = app.app_icon(ui.ctx());
                 ui.add(egui::Image::new(&icon).fit_to_exact_size(vec2(88.0, 88.0)));
                 ui.add_space(18.0);
@@ -1350,7 +1463,7 @@ fn add_account(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// One sign-in button for each provider, as many in a row as fit, or the
+/// One sign-in button for each provider, in one row if they fit, or the
 /// progress of a sign-in.
 fn sign_in(app: &mut App, ui: &mut Ui) {
     let t = Tokens::of(ui);
@@ -1367,14 +1480,19 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
     }
     let gap = 10.0;
     let providers: Vec<_> = available_providers().collect();
-    let fit = ((ui.available_width() + gap) / (210.0 + gap)) as usize;
-    let columns = fit.clamp(1, providers.len().max(1));
+    // All in one row, or one under the other: never a row with a gap.
+    let fit = ((ui.available_width() + gap) / (150.0 + gap)) as usize;
+    let columns = if fit >= providers.len() {
+        providers.len().max(1)
+    } else {
+        1
+    };
     let width = ((ui.available_width() - gap * (columns - 1) as f32) / columns as f32).floor();
     for row in providers.chunks(columns) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             for p in row {
-                if widgets::provider_button(ui, width, p.label, p.company).clicked() {
+                if widgets::provider_button(ui, width, p.label).clicked() {
                     app.engine.send(Command::AddAccount {
                         provider: p.id.into(),
                     });
