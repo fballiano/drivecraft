@@ -42,8 +42,13 @@ jobs:
         shell: bash
         run: scripts/winget.sh "$VERSION"
 
+      # winget returns a non-zero code also for warnings. An older winget
+      # warns about the URL of a newer schema.
       - name: Validate the manifests
-        run: winget validate --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION"
+        run: |
+          $out = winget validate --manifest "target/winget/manifests/f/FabrizioBalliano/DriveCraft/$env:VERSION" | Out-String
+          Write-Host $out
+          if ($out -notmatch "Manifest validation succeeded") { throw "The validation failed." }
 
       - name: Install with the manifests
         run: |
