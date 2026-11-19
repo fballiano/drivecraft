@@ -833,8 +833,9 @@ fn settings(app: &mut App, ui: &mut Ui) {
         if let Some((version, _)) = &app.rclone {
             ui.label(
                 RichText::new(format!(
-                    "DriveCraft {} · bundled rclone {version}",
-                    env!("CARGO_PKG_VERSION")
+                    "DriveCraft {} · bundled rclone {version}{}",
+                    env!("CARGO_PKG_VERSION"),
+                    app.gpu_name.map(|g| format!(" · {g}")).unwrap_or_default()
                 ))
                 .font(regular(11.5))
                 .color(t.text_faint),

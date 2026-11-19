@@ -6,6 +6,7 @@
 
 mod art;
 mod autostart;
+mod gpu;
 mod icons;
 mod instance;
 mod pages;
@@ -26,15 +27,19 @@ use eframe::egui::{self, ViewportCommand};
 use crate::tray::{Tray, TrayAction, TrayState};
 
 fn main() -> eframe::Result {
-    let guard = match instance::start(&Settings::dir()) {
-        Ok(instance::Start::First(guard)) => Some(guard),
+    let dir = Settings::dir();
+    let (guard, show_request) = match instance::start(&dir) {
+        Ok(instance::Start::First(guard, request)) => (Some(guard), Some(request)),
         // The running DriveCraft shows its window.
         Ok(instance::Start::Other) => return Ok(()),
         Err(e) => {
             eprintln!("Cannot check for a running DriveCraft: {e}");
-            None
+            (None, None)
         }
     };
+    let gpu = gpu::choose(&dir);
+    let backends = gpu.as_ref().map(gpu::Probe::backends);
+    let start_again = gpu.as_ref().is_some_and(|p| !p.tried_all());
     // After a start at login, DriveCraft waits in the tray. Linux has no tray
     // icon yet, so there the window opens.
     let hidden =
@@ -54,31 +59,44 @@ fn main() -> eframe::Result {
                 width: icon.size,
                 height: icon.size,
             })),
-        wgpu_options: wgpu_options(),
+        wgpu_options: wgpu_options(backends),
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         "DriveCraft",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, guard, hidden)))),
-    )
+        Box::new(move |cc| Ok(Box::new(App::new(cc, show_request, gpu, hidden)))),
+    );
+    // Without a GPU device, eframe returns an error. gpu.txt has no
+    // confirmation, so a new start takes the next backend. It needs the lock.
+    if let Err(e) = &result
+        && start_again
+    {
+        eprintln!(
+            "The window cannot start ({e}). DriveCraft starts again with a different GPU backend."
+        );
+        drop(guard);
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe)
+                .args(std::env::args_os().skip(1))
+                .spawn();
+        }
+    }
+    result
 }
 
 /// The graphics setup of the window.
-/// - Windows: DirectX 12 only. wgpu prefers Vulkan, and the Vulkan driver of
-///   some Intel GPUs crashes DriveCraft at the start (igvk64.dll).
+/// - `backends`: the choice of `gpu::choose`. None keeps the default of
+///   egui-wgpu, which also reads `WGPU_BACKEND`.
 /// - All systems: the GPU with the lower power use. An app in the tray must
-///   not wake up the discrete GPU of a laptop.
-///
-/// The variables `WGPU_BACKEND` and `WGPU_POWER_PREF` still select a
-/// different backend or GPU.
-fn wgpu_options() -> eframe::WgpuConfiguration {
+///   not wake up the discrete GPU of a laptop. `WGPU_POWER_PREF` overrides it.
+fn wgpu_options(backends: Option<eframe::wgpu::Backends>) -> eframe::WgpuConfiguration {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
-    use eframe::wgpu::{Backends, PowerPreference};
+    use eframe::wgpu::PowerPreference;
 
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    if cfg!(windows) && Backends::from_env().is_none() {
-        setup.instance_descriptor.backends = Backends::DX12;
+    if let Some(backends) = backends {
+        setup.instance_descriptor.backends = backends;
     }
     if PowerPreference::from_env().is_none() {
         setup.power_preference = PowerPreference::LowPower;
@@ -252,8 +270,15 @@ struct App {
     /// A provider that needs a value before the sign-in, and the value.
     add_field: Option<(String, String)>,
 
-    /// The lock of the only running DriveCraft. None in tests.
-    instance: Option<instance::Guard>,
+    /// The requests of later starts to show the window. None in tests.
+    show_request: Option<instance::ShowRequest>,
+    /// The GPU backend of this run, until the window works with it.
+    gpu: Option<gpu::Probe>,
+    /// The frames since the window opened last.
+    gpu_frames: u32,
+    started: std::time::Instant,
+    /// The GPU backend for the settings page, for example "DirectX 12".
+    gpu_name: Option<&'static str>,
     /// True in the real app: it registers the start at login. Tests do not.
     manage_autostart: bool,
     /// The state of the start at login that this run registered last.
@@ -261,7 +286,12 @@ struct App {
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>, guard: Option<instance::Guard>, hidden: bool) -> Self {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        show_request: Option<instance::ShowRequest>,
+        gpu: Option<gpu::Probe>,
+        hidden: bool,
+    ) -> Self {
         theme::install(&cc.egui_ctx);
         let appearance = cc
             .storage
@@ -291,7 +321,12 @@ impl App {
         }
         let mut app = App::from_parts(engine, tray, tray_rx, appearance);
         app.window_visible = !hidden;
-        app.instance = guard;
+        app.show_request = show_request;
+        app.gpu = gpu;
+        app.gpu_name = cc
+            .wgpu_render_state
+            .as_ref()
+            .map(|s| gpu::display_name(s.adapter.get_info().backend));
         app.manage_autostart = true;
         app
     }
@@ -331,7 +366,11 @@ impl App {
             form_name: None,
             sign_out: None,
             add_field: None,
-            instance: None,
+            show_request: None,
+            gpu: None,
+            gpu_frames: 0,
+            started: std::time::Instant::now(),
+            gpu_name: None,
             manage_autostart: false,
             autostart_applied: None,
         }
@@ -605,6 +644,12 @@ impl App {
     }
 
     fn show_window(&mut self, ctx: &egui::Context) {
+        // A driver can crash when the window draws, so the backend counts
+        // as confirmed again only after some frames.
+        if let Some(gpu) = &mut self.gpu {
+            gpu.unconfirm();
+        }
+        self.gpu_frames = 0;
         self.window_visible = true;
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
@@ -709,16 +754,34 @@ impl eframe::App for App {
         self.handle_events();
         self.handle_tray(ctx);
         // A second start of DriveCraft asks this one to show its window.
-        if let Some(guard) = &mut self.instance {
-            if guard.show_requested() {
+        if let Some(request) = &mut self.show_request {
+            if request.take() {
                 self.show_window(ctx);
             }
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        // A hidden window draws nothing. The GPU device works if the app
+        // runs for some seconds.
+        if !self.window_visible
+            && self.started.elapsed() > std::time::Duration::from_secs(5)
+            && let Some(gpu) = &mut self.gpu
+        {
+            gpu.confirm();
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.draw(ui);
+        // The third frame on screen: the first two were drawn without a
+        // crash of the driver.
+        if self.window_visible
+            && let Some(gpu) = &mut self.gpu
+        {
+            self.gpu_frames += 1;
+            if self.gpu_frames >= 3 && !gpu.is_confirmed() {
+                gpu.confirm();
+            }
+        }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -726,6 +789,10 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self) {
+        // A normal exit: the backend did not crash.
+        if let Some(gpu) = &mut self.gpu {
+            gpu.confirm();
+        }
         self.engine.shutdown();
     }
 }

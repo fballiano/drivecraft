@@ -14,14 +14,18 @@ use std::time::{Duration, Instant};
 /// Holds the lock while it exists.
 pub struct Guard {
     _file: File,
-    show_request: PathBuf,
+}
+
+/// The requests of later starts to show the window.
+pub struct ShowRequest {
+    path: PathBuf,
     last_check: Option<Instant>,
 }
 
 pub enum Start {
     /// This is the only instance.
-    First(Guard),
-    /// An other instance runs. It got the request to show its window.
+    First(Guard, ShowRequest),
+    /// Another instance runs. It got the request to show its window.
     Other,
 }
 
@@ -39,11 +43,13 @@ pub fn start(dir: &Path) -> io::Result<Start> {
         Ok(()) => {
             // A request from before this start is old.
             let _ = std::fs::remove_file(&show_request);
-            Ok(Start::First(Guard {
-                _file: file,
-                show_request,
-                last_check: None,
-            }))
+            Ok(Start::First(
+                Guard { _file: file },
+                ShowRequest {
+                    path: show_request,
+                    last_check: None,
+                },
+            ))
         }
         Err(TryLockError::WouldBlock) => {
             File::create(&show_request)?;
@@ -53,10 +59,10 @@ pub fn start(dir: &Path) -> io::Result<Start> {
     }
 }
 
-impl Guard {
+impl ShowRequest {
     /// True once for each request of a second start to show the window.
     /// It looks at the file at most once each second.
-    pub fn show_requested(&mut self) -> bool {
+    pub fn take(&mut self) -> bool {
         if self
             .last_check
             .is_some_and(|t| t.elapsed() < Duration::from_secs(1))
@@ -64,7 +70,7 @@ impl Guard {
             return false;
         }
         self.last_check = Some(Instant::now());
-        std::fs::remove_file(&self.show_request).is_ok()
+        std::fs::remove_file(&self.path).is_ok()
     }
 }
 
@@ -77,20 +83,20 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drivecraft-instance-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
-        let Start::First(mut guard) = start(&dir).unwrap() else {
+        let Start::First(guard, mut request) = start(&dir).unwrap() else {
             panic!("the first start must get the lock");
         };
-        assert!(!guard.show_requested(), "no request yet");
+        assert!(!request.take(), "no request yet");
 
         assert!(matches!(start(&dir).unwrap(), Start::Other));
-        guard.last_check = None;
-        assert!(guard.show_requested());
-        guard.last_check = None;
-        assert!(!guard.show_requested(), "each request counts once");
+        request.last_check = None;
+        assert!(request.take());
+        request.last_check = None;
+        assert!(!request.take(), "each request counts once");
 
         drop(guard);
         assert!(
-            matches!(start(&dir).unwrap(), Start::First(_)),
+            matches!(start(&dir).unwrap(), Start::First(..)),
             "the lock ends with the first instance"
         );
         let _ = std::fs::remove_dir_all(&dir);

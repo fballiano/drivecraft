@@ -58,6 +58,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - **Icons in text:** Inter has glyphs at the Lucide code points. Build mixed icon-and-text strings with `widgets::mixed`, never with plain `RichText`.
 - **jiff 1.0** renamed `Zoned` to `ZonedDateTime`.
 - **Flatpak:** the sandbox points `XDG_CONFIG_HOME` and `XDG_DATA_HOME` into `~/.var/app/io.github.fballiano.drivecraft`. The settings can stay there. To read the configuration of other cloud clients, use `flatpak::host_config_dir`, not `dirs::config_dir`.
+- **GPU backend** (`gpu.rs`). A driver crash cannot be caught, so `gpu.txt` in the settings folder records the backend before the window opens; three frames on screen, 5 seconds with a hidden window, or a normal exit confirm it. An unconfirmed backend at the next start means a crash: take the next one (Windows: DirectX 12, Vulkan, OpenGL; Linux: Vulkan, OpenGL; macOS: Metal only). Without a GPU device, `main` starts DriveCraft again. The power preference is low power. `WGPU_BACKEND` and `WGPU_POWER_PREF` override both. Reason: the Vulkan driver of an Intel GPU (igvk64.dll 30.0.101.1404) crashed DriveCraft at the start.
 - **App ID:** `io.github.fballiano.drivecraft` everywhere: the macOS bundle, the Wayland app ID (`with_app_id`), the desktop file, the AppStream metadata, the icons, and the Flatpak.
 
 ## Verify UI changes
