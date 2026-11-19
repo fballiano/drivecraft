@@ -76,6 +76,15 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.8.0" date="2026-11-19">
+      <description>
+        <ul>
+          <li>Sign in again: when a provider ends the sign-in, DriveCraft stops the sync of that account and asks for a new sign-in. The Account tab also has a button for it.</li>
+          <li>If rclone stops by itself, DriveCraft starts it again and reports it.</li>
+          <li>DriveCraft refuses the folders of the iCloud apps of macOS and Windows.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-11-19">
       <description>
         <ul>
