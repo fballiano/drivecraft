@@ -1740,7 +1740,11 @@ impl Engine {
                 self.start_sync(&id);
                 return;
             }
-            self.finish(&id, false, format!("The sync failed: {err}"));
+            let message = match transfer_limit_hint(err) {
+                Some(hint) => format!("The sync stopped: {hint}"),
+                None => format!("The sync failed: {err}"),
+            };
+            self.finish(&id, false, message);
             return;
         }
         if let Some(r) = self.runtimes.get_mut(&id) {
@@ -2188,6 +2192,16 @@ fn is_blocked_error(error: &str) -> bool {
     error.contains("malwareDetected") || error.contains("cannotDownloadAbusiveFile")
 }
 
+/// A clear text for a provider that stopped the transfers because the
+/// transfer limit of the account is used up (MEGA: HTTP 509).
+fn transfer_limit_hint(error: &str) -> Option<&'static str> {
+    error.contains("509 Bandwidth Limit Exceeded").then_some(
+        "the provider stopped the download, because the transfer limit of your account \
+         is used up. A free MEGA account gets more transfer after some hours. DriveCraft \
+         tries again at each sync, and continues where it stopped.",
+    )
+}
+
 /// The lock file in a bisync error "prior lock file found: <path>". Only a
 /// `.lck` file in a `bisync` folder.
 fn stale_lock_path(error: &str) -> Option<PathBuf> {
@@ -2327,6 +2341,11 @@ mod tests {
             None
         );
         assert_eq!(stale_lock_path("bisync aborted"), None);
+        assert!(
+            transfer_limit_hint("failed to write chunk: Http Status: 509 Bandwidth Limit Exceeded")
+                .is_some()
+        );
+        assert!(transfer_limit_hint("HTTP error 500").is_none());
         assert!(process_runs(std::process::id()) || cfg!(windows));
     }
 
