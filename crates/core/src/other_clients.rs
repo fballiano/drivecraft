@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 /// - Dropbox: the folders in its `info.json`, on all systems;
 /// - Box Drive and the old Google "Backup and Sync" app on macOS and
 ///   Windows: `~/Box` and `~/Google Drive`;
-/// - the default folders of pCloud Drive, kDrive, and Yandex Disk.
+/// - the default folders of pCloud Drive, kDrive, and Yandex Disk;
+/// - iCloud Drive: `~/Library/Mobile Documents` on macOS (the system syncs
+///   it), and `~/iCloudDrive` of the iCloud app for Windows.
 pub fn folders(home: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     #[cfg(windows)]
@@ -31,6 +33,12 @@ pub fn folders(home: &Path) -> Vec<PathBuf> {
     if cfg!(any(target_os = "macos", windows)) {
         out.push(home.join("Box"));
         out.push(home.join("Google Drive"));
+    }
+    if cfg!(target_os = "macos") {
+        out.push(home.join("Library/Mobile Documents"));
+    }
+    if cfg!(windows) {
+        out.push(home.join("iCloudDrive"));
     }
     // The default folders of the apps of pCloud, kDrive, and Yandex Disk.
     for name in [
@@ -114,6 +122,21 @@ fn abraunegg_folder(config_dir: &Path, home: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn the_icloud_drive_folder_is_a_client_folder() {
+        let home = PathBuf::from("/home/demo");
+        let icloud = if cfg!(target_os = "macos") {
+            Some(home.join("Library/Mobile Documents"))
+        } else if cfg!(windows) {
+            Some(home.join("iCloudDrive"))
+        } else {
+            None
+        };
+        if let Some(dir) = icloud {
+            assert!(folders(&home).contains(&dir));
+        }
+    }
 
     #[test]
     fn dropbox_folders_come_from_info_json() {

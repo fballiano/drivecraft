@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
 use drivecraft_core::{
-    Account, ChangeKind, Command, EngineHandle, Event, FileChange, Settings, Transfer,
+    Account, ChangeKind, Command, EngineHandle, Event, FileChange, Settings, SignInStep, Transfer,
 };
 use eframe::egui::{self, ViewportCommand};
 
@@ -203,7 +203,18 @@ enum Status {
     Error(String),
     /// After a sign-in: the first sync waits for the folder selection.
     ChooseFolders,
+    /// The provider ended the sign-in. The sync waits for a new one.
+    SignIn,
     UpToDate,
+}
+
+/// The form of a sign-in with a password (`SignIn::Password`).
+struct PasswordForm {
+    provider: String,
+    /// None for a new account, else the account that signs in again.
+    account: Option<String>,
+    user: String,
+    password: String,
 }
 
 /// The state of the sign-out dialog.
@@ -245,7 +256,12 @@ struct App {
     fatal: Option<String>,
     rclone: Option<(String, PathBuf)>,
     settings: Option<Settings>,
-    connecting: bool,
+    /// The step of the sign-in that runs.
+    sign_in: SignInStep,
+    /// The password form, while it is open.
+    password_form: Option<PasswordForm>,
+    /// The answer to `SignInStep::Question`, while the user types it.
+    sign_in_answer: String,
     /// Per account, by id.
     trees: HashMap<String, Tree>,
     storage: HashMap<String, (u64, u64)>,
@@ -353,7 +369,9 @@ impl App {
             fatal: None,
             rclone: None,
             settings: None,
-            connecting: false,
+            sign_in: SignInStep::Idle,
+            password_form: None,
+            sign_in_answer: String::new(),
             trees: HashMap::new(),
             storage: HashMap::new(),
             no_storage: HashSet::new(),
@@ -468,7 +486,12 @@ impl App {
                 } => self.rclone = Some((rclone_version, rclone_path)),
                 Event::Fatal(e) => self.fatal = Some(e),
                 Event::Settings(s) => self.apply_settings(s),
-                Event::AccountConnecting => self.connecting = true,
+                Event::SignIn(step) => {
+                    if !matches!(step, SignInStep::Question { .. }) {
+                        self.sign_in_answer.clear();
+                    }
+                    self.sign_in = step;
+                }
                 Event::Dir {
                     account,
                     path,
@@ -534,9 +557,6 @@ impl App {
                 }
                 Event::Log { account, text } => self.add_activity(EntryKind::Info, account, text),
                 Event::Error { account, text } => {
-                    if text.starts_with("Cannot connect the account") {
-                        self.connecting = false;
-                    }
                     self.add_activity(EntryKind::Error, account, text);
                 }
             }
@@ -555,7 +575,6 @@ impl App {
         if let Some(a) = added {
             self.page = Page::Account(a.id.clone());
             self.account_tab = AccountTab::Folders;
-            self.connecting = false;
         }
         if first {
             self.form_interval = s.sync_interval_minutes;
@@ -605,6 +624,9 @@ impl App {
                 fraction: s.fraction,
             };
         }
+        if self.account(id).is_some_and(|a| a.needs_sign_in) {
+            return Status::SignIn;
+        }
         if let Some(e) = self.errors.get(id) {
             return Status::Error(e.clone());
         }
@@ -626,6 +648,7 @@ impl App {
             .collect();
         all.iter()
             .find(|s| matches!(s, Status::Syncing { .. }))
+            .or_else(|| all.iter().find(|s| matches!(s, Status::SignIn)))
             .or_else(|| all.iter().find(|s| matches!(s, Status::Error(_))))
             .or_else(|| all.iter().find(|s| matches!(s, Status::ChooseFolders)))
             .cloned()
@@ -713,6 +736,7 @@ impl App {
             Status::Syncing { .. } => (TrayState::Syncing, "Syncing…".to_string()),
             Status::Error(_) => (TrayState::Error, "Sync problem".to_string()),
             Status::ChooseFolders => (TrayState::Idle, "Choose your folders".to_string()),
+            Status::SignIn => (TrayState::Error, "Sign in again".to_string()),
             Status::UpToDate => (TrayState::UpToDate, "Up to date".to_string()),
         };
         let state = if self.fatal.is_some() {
@@ -1211,6 +1235,47 @@ mod preview {
             let mut narrow = demo_app(personal());
             narrow.account_tab = AccountTab::Account;
             shoot_sized("account-settings-narrow", narrow, dark, 780.0);
+            // A provider ended the sign-in.
+            let expired = |page: Page| {
+                let mut app = demo_synced(page);
+                if let Some(s) = &mut app.settings {
+                    s.accounts[0].needs_sign_in = true;
+                }
+                app
+            };
+            shoot("overview-sign-in", expired(Page::Overview), dark);
+            shoot("account-sign-in", expired(personal()), dark);
+            let mut browser = expired(personal());
+            browser.sign_in = SignInStep::Browser {
+                account: Some("onedrive".into()),
+            };
+            shoot("account-sign-in-browser", browser, dark);
+            // iCloud: the password form, then the code.
+            let mut icloud = demo_app(Page::AddAccount);
+            icloud.password_form = Some(PasswordForm {
+                provider: "iclouddrive".into(),
+                account: None,
+                user: "someone@example.com".into(),
+                password: "password".into(),
+            });
+            shoot("add-account-icloud", icloud, dark);
+            let mut code = demo_app(Page::AddAccount);
+            code.sign_in = SignInStep::Question {
+                account: None,
+                name: "config_2fa".into(),
+                help: String::new(),
+                error: "The code is not valid.".into(),
+            };
+            code.sign_in_answer = "1234".into();
+            shoot("add-account-icloud-code", code, dark);
+            let mut narrow_form = demo_app(Page::AddAccount);
+            narrow_form.password_form = Some(PasswordForm {
+                provider: "iclouddrive".into(),
+                account: None,
+                user: String::new(),
+                password: String::new(),
+            });
+            shoot_sized("add-account-icloud-narrow", narrow_form, dark, 780.0);
         }
     }
 }

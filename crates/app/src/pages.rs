@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use drivecraft_core::{
-    Account, ChangeKind, Command, KeepState, Prefs, Transfer, available_providers, provider,
-    provider_label,
+    Account, ChangeKind, Command, KeepState, Prefs, SignIn, SignInStep, Transfer,
+    available_providers, provider, provider_label,
 };
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Rect,
@@ -19,8 +19,8 @@ use eframe::egui::{
 use crate::theme::{RADIUS, RADIUS_LG, Tokens, icon_font, medium, regular, semibold};
 use crate::widgets::{self, card, card_title, list_card, page_header, primary, secondary};
 use crate::{
-    AccountTab, App, Appearance, DirNode, Entry, EntryKind, Page, SignOut, Status, Syncing, Tree,
-    dirs_home, file_manager_name, human_bytes, icons, open_in_file_manager,
+    AccountTab, App, Appearance, DirNode, Entry, EntryKind, Page, PasswordForm, SignOut, Status,
+    Syncing, Tree, dirs_home, file_manager_name, human_bytes, icons, open_in_file_manager,
 };
 
 // ---------------------------------------------------------------- layout
@@ -118,6 +118,7 @@ fn status_color(t: &Tokens, status: &Status) -> Color32 {
         Status::Syncing { .. } => t.accent,
         Status::Error(_) => t.danger,
         Status::ChooseFolders => t.warning,
+        Status::SignIn => t.danger,
         Status::UpToDate => t.success,
     }
 }
@@ -129,6 +130,7 @@ fn status_text(app: &App, id: &str, status: &Status) -> String {
         Status::Syncing { text, .. } => format!("Syncing · {text}"),
         Status::Error(e) => e.clone(),
         Status::ChooseFolders => "Choose the folders for this computer.".into(),
+        Status::SignIn => "Sign in again. The sync waits.".into(),
         Status::UpToDate => match app.last_sync.get(id) {
             Some(time) => format!("Up to date · last sync at {time}"),
             None => "Waiting for the first sync.".into(),
@@ -224,8 +226,14 @@ fn status_card(app: &mut App, ui: &mut Ui, status: &Status) {
             .iter()
             .find(|a| a.awaiting_selection)
             .map(|a| a.id.clone()),
+        Status::SignIn => app
+            .accounts()
+            .iter()
+            .find(|a| a.needs_sign_in)
+            .map(|a| a.id.clone()),
         _ => None,
     };
+    let about_account = about.as_deref().and_then(|id| app.account(id)).cloned();
     let about_name = about.as_deref().map(|id| app.account_name(id));
     card(ui, |ui| {
         // Top-aligned: the text block starts at the top of the icon.
@@ -261,6 +269,22 @@ fn status_card(app: &mut App, ui: &mut Ui, status: &Status) {
                         about_name.clone().unwrap_or_default()
                     ),
                     "Its first sync starts after you choose the folders for this computer.".into(),
+                ),
+                Status::SignIn => (
+                    icons::CLOUD_ALERT,
+                    t.danger,
+                    t.danger_soft,
+                    format!(
+                        "Sign in to {} again",
+                        about_name.clone().unwrap_or_default()
+                    ),
+                    format!(
+                        "{} ended the sign-in. The sync of this account waits until you \
+                         sign in again.",
+                        about_account
+                            .as_ref()
+                            .map_or("The provider", |a| provider_label(&a.provider))
+                    ),
                 ),
                 Status::UpToDate => (
                     icons::CLOUD_CHECK,
@@ -302,6 +326,14 @@ fn status_card(app: &mut App, ui: &mut Ui, status: &Status) {
                     );
                 },
                 |ui, ()| {
+                    if *status == Status::SignIn {
+                        if primary(ui, app.sign_in.is_idle(), "Sign in again").clicked()
+                            && let Some(a) = &about_account
+                        {
+                            start_sign_in_again(app, a);
+                        }
+                        return;
+                    }
                     if *status == Status::ChooseFolders {
                         if primary(ui, true, &format!("{}  Choose folders", icons::FOLDER))
                             .clicked()
@@ -884,6 +916,7 @@ fn account_page(app: &mut App, ui: &mut Ui, account: &Account) {
         app.sign_out = None;
     }
     ui.add_space(14.0);
+    sign_in_again_card(app, ui, account);
     match app.account_tab {
         AccountTab::Folders => folders(app, ui, account),
         AccountTab::Account => account_settings(app, ui, account),
@@ -1097,6 +1130,22 @@ fn account_settings(app: &mut App, ui: &mut Ui, account: &Account) {
                 |ui, _| {
                     if secondary(ui, !busy, "Run full resync").clicked() {
                         app.engine.send(Command::ForceResync(id.clone()));
+                    }
+                },
+            );
+            widgets::separator(ui);
+            setting_row(
+                ui,
+                "Sign in again",
+                &format!(
+                    "Use this when DriveCraft cannot connect to {}, for example after \
+                     you changed your password.",
+                    provider_label(&account.provider)
+                ),
+                |ui, _| {
+                    let idle = app.sign_in.is_idle() && app.password_form.is_none();
+                    if secondary(ui, idle, "Sign in again").clicked() {
+                        start_sign_in_again(app, account);
                     }
                 },
             );
@@ -1487,7 +1536,7 @@ fn add_account(app: &mut App, ui: &mut Ui) {
                 ui,
                 icons::CLOUD,
                 "Select your cloud",
-                Some("You sign in on the website of the provider, in your browser."),
+                Some("Most providers open their sign-in page in your browser."),
             );
             ui.add_space(12.0);
             sign_in(app, ui);
@@ -1500,16 +1549,8 @@ fn add_account(app: &mut App, ui: &mut Ui) {
 /// One sign-in button for each provider, in one row if they fit, or the
 /// progress of a sign-in.
 fn sign_in(app: &mut App, ui: &mut Ui) {
-    let t = Tokens::of(ui);
-    if app.connecting {
-        ui.horizontal(|ui| {
-            ui.add(egui::Spinner::new().size(18.0).color(t.accent));
-            ui.label(
-                RichText::new("Finish the sign-in in your browser…")
-                    .font(medium(13.5))
-                    .color(t.text_dim),
-            );
-        });
+    if !app.sign_in.is_idle() && app.sign_in.account().is_none() {
+        sign_in_step(app, ui);
         return;
     }
     let gap = 10.0;
@@ -1524,22 +1565,244 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             for p in row {
-                if widgets::provider_button(ui, width, p.label).clicked() {
-                    if p.field.is_some() {
-                        app.add_field = Some((p.id.to_string(), String::new()));
-                    } else {
-                        app.add_field = None;
-                        app.engine.send(Command::AddAccount {
-                            provider: p.id.into(),
-                            value: None,
-                        });
-                    }
+                if !widgets::provider_button(ui, width, p.label).clicked() {
+                    continue;
+                }
+                app.add_field = None;
+                app.password_form = None;
+                if matches!(p.sign_in, SignIn::Password { .. }) {
+                    app.password_form = Some(PasswordForm {
+                        provider: p.id.to_string(),
+                        account: None,
+                        user: String::new(),
+                        password: String::new(),
+                    });
+                } else if p.field.is_some() {
+                    app.add_field = Some((p.id.to_string(), String::new()));
+                } else {
+                    app.engine.send(Command::AddAccount {
+                        provider: p.id.into(),
+                        value: None,
+                    });
                 }
             }
         });
         ui.add_space(gap - ui.spacing().item_spacing.y);
     }
     provider_field(app, ui);
+    if app
+        .password_form
+        .as_ref()
+        .is_some_and(|f| f.account.is_none())
+    {
+        password_form(app, ui);
+    }
+}
+
+/// Starts a new sign-in to an account. A browser provider starts at once;
+/// a password provider opens the password form. The account page shows
+/// the progress.
+fn start_sign_in_again(app: &mut App, account: &Account) {
+    app.page = Page::Account(account.id.clone());
+    app.add_field = None;
+    app.password_form = None;
+    match provider(&account.provider).map(|p| &p.sign_in) {
+        Some(SignIn::Password { .. }) => {
+            app.password_form = Some(PasswordForm {
+                provider: account.provider.clone(),
+                account: Some(account.id.clone()),
+                user: String::new(),
+                password: String::new(),
+            });
+        }
+        _ => app.engine.send(Command::SignInAgain(account.id.clone())),
+    }
+}
+
+/// On the account page: the request to sign in again, and its progress.
+fn sign_in_again_card(app: &mut App, ui: &mut Ui, account: &Account) {
+    let id = account.id.as_str();
+    let running = !app.sign_in.is_idle() && app.sign_in.account() == Some(id);
+    let form = app
+        .password_form
+        .as_ref()
+        .is_some_and(|f| f.account.as_deref() == Some(id));
+    if !account.needs_sign_in && !running && !form {
+        return;
+    }
+    let label = provider_label(&account.provider);
+    let subtitle = if account.needs_sign_in {
+        format!(
+            "{label} ended the sign-in. DriveCraft does not sync this account until you \
+             sign in again."
+        )
+    } else {
+        format!("Sign in to {label} again.")
+    };
+    card(ui, |ui| {
+        widgets::text_and_actions(
+            ui,
+            Align::Center,
+            |ui| card_title(ui, icons::CLOUD_ALERT, "Sign in again", Some(&subtitle)),
+            |ui, ()| {
+                if !running
+                    && !form
+                    && primary(ui, app.sign_in.is_idle(), "Sign in again").clicked()
+                {
+                    start_sign_in_again(app, account);
+                }
+            },
+        );
+        if running {
+            ui.add_space(12.0);
+            sign_in_step(app, ui);
+        } else if form {
+            ui.add_space(8.0);
+            password_form(app, ui);
+        }
+    });
+    ui.add_space(14.0);
+}
+
+/// The step of the sign-in that runs: a spinner, or the question of the
+/// provider.
+fn sign_in_step(app: &mut App, ui: &mut Ui) {
+    let t = Tokens::of(ui);
+    let text = match app.sign_in.clone() {
+        SignInStep::Idle => return,
+        SignInStep::Browser { .. } => "Finish the sign-in in your browser…",
+        SignInStep::Working { .. } => "DriveCraft signs in…",
+        SignInStep::Question {
+            name, help, error, ..
+        } => return sign_in_question(app, ui, &name, &help, &error),
+    };
+    ui.horizontal(|ui| {
+        ui.add(egui::Spinner::new().size(18.0).color(t.accent));
+        ui.label(RichText::new(text).font(medium(13.5)).color(t.text_dim));
+    });
+}
+
+/// A field with a frame, for the forms of a sign-in.
+fn form_frame(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    let t = Tokens::of(ui);
+    ui.add_space(4.0);
+    Frame::new()
+        .fill(t.field)
+        .corner_radius(CornerRadius::same(RADIUS))
+        .inner_margin(Margin::same(14))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 8.0;
+            add(ui);
+        });
+}
+
+/// A text field with a label above it.
+fn labelled_field(ui: &mut Ui, label: &str, text: &mut String, password: bool) -> egui::Response {
+    let t = Tokens::of(ui);
+    let id = ui
+        .label(RichText::new(label).font(medium(13.0)).color(t.text))
+        .id;
+    let width = ui.available_width().min(320.0);
+    ui.add_sized(
+        vec2(width, 32.0),
+        egui::TextEdit::singleline(text)
+            .password(password)
+            .align(Align2::LEFT_CENTER),
+    )
+    .labelled_by(id)
+}
+
+/// The user name and the password of a provider with `SignIn::Password`.
+fn password_form(app: &mut App, ui: &mut Ui) {
+    let Some(form) = app.password_form.as_ref() else {
+        return;
+    };
+    let Some(SignIn::Password {
+        user_label, hint, ..
+    }) = provider(&form.provider).map(|p| &p.sign_in)
+    else {
+        return;
+    };
+    let label = provider_label(&form.provider).to_string();
+    let again = form.account.is_some();
+    let mut send = false;
+    let mut cancel = false;
+    form_frame(ui, |ui| {
+        let Some(form) = app.password_form.as_mut() else {
+            return;
+        };
+        widgets::setting_label(
+            ui,
+            &format!("Sign in to {label}"),
+            &format!(
+                "{hint} DriveCraft gives your password to rclone for the sign-in only. \
+                 It does not keep it."
+            ),
+        );
+        let mut enter = false;
+        if !again {
+            let user = labelled_field(ui, user_label, &mut form.user, false);
+            enter |= user.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        }
+        let password = labelled_field(ui, "Password", &mut form.password, true);
+        enter |= password.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let ready = (again || !form.user.trim().is_empty()) && !form.password.is_empty();
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            send = primary(ui, ready, "Sign in").clicked() || (enter && ready);
+            cancel = secondary(ui, true, "Cancel").clicked();
+        });
+    });
+    if send && let Some(form) = app.password_form.take() {
+        app.engine.send(Command::SignInWithPassword {
+            provider: form.provider,
+            account: form.account,
+            user: form.user,
+            password: form.password,
+        });
+    } else if cancel {
+        app.password_form = None;
+    }
+}
+
+/// A question of the provider during a sign-in, for example the code that
+/// Apple shows on the devices of the user.
+fn sign_in_question(app: &mut App, ui: &mut Ui, name: &str, help: &str, error: &str) {
+    let t = Tokens::of(ui);
+    let (title, text) = if name == "config_2fa" {
+        (
+            "Type the code",
+            "Apple shows a code on your iPhone, iPad, or Mac. Type the code here. \
+             If you have no device, type sms to get the code in a text message."
+                .to_string(),
+        )
+    } else {
+        ("Answer the question", help.trim().to_string())
+    };
+    let mut send = false;
+    let mut cancel = false;
+    form_frame(ui, |ui| {
+        widgets::setting_label(ui, title, &text);
+        if !error.is_empty() {
+            ui.label(RichText::new(error).font(regular(12.5)).color(t.danger));
+        }
+        let field = labelled_field(ui, "Answer", &mut app.sign_in_answer, false);
+        let ready = !app.sign_in_answer.trim().is_empty();
+        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            send = primary(ui, ready, "Continue").clicked() || (enter && ready);
+            cancel = secondary(ui, true, "Cancel").clicked();
+        });
+    });
+    if send {
+        let answer = std::mem::take(&mut app.sign_in_answer);
+        app.engine.send(Command::SignInAnswer(answer));
+    } else if cancel {
+        app.sign_in_answer.clear();
+        app.engine.send(Command::CancelSignIn);
+    }
 }
 
 /// The value that a provider needs before the sign-in, for example the

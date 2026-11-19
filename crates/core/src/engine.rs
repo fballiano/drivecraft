@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
-use crate::providers::provider_label;
+use crate::providers::{SignIn, provider_label};
 use crate::rclone::{
     Rclone, command as rclone_command, config_section, default_config_file, find_binary,
     write_private,
@@ -25,13 +25,15 @@ use crate::settings::{
     Account, Settings, check_local_dir, filters_match_last_resync, is_safe_relative,
     new_account_dir, nfc,
 };
+use crate::signin::{ConfigStep, SignInStep, config_step, expired};
 use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff, mark_conflicts};
 
 #[derive(Debug)]
 pub enum Command {
     /// Signs in to a new account of `provider` (for example "onedrive").
     /// rclone opens the login page in the browser. `value` is the value of
-    /// `Provider::field`, if the provider has one.
+    /// `Provider::field`, if the provider has one. For a provider with
+    /// `SignIn::Password`, use `SignInWithPassword`.
     AddAccount {
         provider: String,
         value: Option<String>,
@@ -76,9 +78,27 @@ pub enum Command {
     /// The user confirmed the folder selection of a new account. Its first
     /// sync can start. See `Account::awaiting_selection`.
     ConfirmSelection(String),
+    /// Signs in to an account again: after the provider ended the sign-in
+    /// (`Account::needs_sign_in`), or when the user wants to. A browser
+    /// provider opens the browser. A password provider needs
+    /// `SignInWithPassword` instead.
+    SignInAgain(String),
+    /// Signs in with a password (`SignIn::Password`). `account` is None for
+    /// a new account, else the account that signs in again. For an account
+    /// that signs in again, an empty `user` keeps its user name.
+    SignInWithPassword {
+        provider: String,
+        account: Option<String>,
+        user: String,
+        password: String,
+    },
+    /// The answer to `SignInStep::Question`, for example the code.
+    SignInAnswer(String),
+    /// Stops a sign-in that waits for an answer.
+    CancelSignIn,
     Shutdown,
     #[doc(hidden)]
-    AccountResult(Result<(String, String), String>),
+    BrowserSignInResult(Result<(), String>),
 }
 
 /// The app-wide settings that the user edits in Settings.
@@ -108,7 +128,8 @@ pub enum Event {
     /// rclone cannot start. The engine stops.
     Fatal(String),
     Settings(Settings),
-    AccountConnecting,
+    /// The step of the sign-in. `SignInStep::Idle` when it ends.
+    SignIn(SignInStep),
     Dir {
         account: String,
         path: String,
@@ -318,6 +339,29 @@ struct Engine {
     /// The account that signs out after its last sync, and moves its folder
     /// to the Trash. See `Command::RemoveAccount`.
     removing: Option<String>,
+    /// The sign-in that runs. Only one runs at a time.
+    signing_in: Option<SignInRun>,
+}
+
+/// A sign-in that runs.
+struct SignInRun {
+    /// The rclone remote. For a new account, it exists only after the
+    /// sign-in.
+    id: String,
+    provider: String,
+    /// True for an account that signs in again.
+    again: bool,
+    /// The rclone option of the password (`SignIn::Password`), or None for
+    /// a sign-in in the browser.
+    password_key: Option<&'static str>,
+    /// The config state that waits for the answer of the user.
+    state: Option<String>,
+}
+
+impl SignInRun {
+    fn account(&self) -> Option<String> {
+        self.again.then(|| self.id.clone())
+    }
 }
 
 impl Engine {
@@ -369,6 +413,7 @@ impl Engine {
             restart_rclone: false,
             last_folder_check: Instant::now(),
             removing: None,
+            signing_in: None,
         })
     }
 
@@ -418,16 +463,17 @@ impl Engine {
     fn handle(&mut self, cmd: Command) {
         match cmd {
             Command::AddAccount { provider, value } => self.connect_account(provider, value),
-            Command::AccountResult(Ok((id, provider))) => {
-                if let Err(e) = self.add_account(id.clone(), provider) {
-                    // No remote without an account: the next sign-in starts clean.
-                    let _ = self.rc.call("config/delete", json!({ "name": id }));
-                    self.error(None, format!("Cannot connect the account: {e:#}"));
-                }
-            }
-            Command::AccountResult(Err(e)) => {
-                self.error(None, format!("Cannot connect the account: {e}"))
-            }
+            Command::SignInAgain(id) => self.sign_in_again(&id),
+            Command::SignInWithPassword {
+                provider,
+                account,
+                user,
+                password,
+            } => self.sign_in_with_password(provider, account, user, password),
+            Command::SignInAnswer(answer) => self.answer_sign_in(answer),
+            Command::CancelSignIn => self.cancel_sign_in(),
+            Command::BrowserSignInResult(Ok(())) => self.sign_in_complete(),
+            Command::BrowserSignInResult(Err(e)) => self.sign_in_failed(e),
             Command::RemoveAccount {
                 account,
                 trash_folder,
@@ -440,6 +486,9 @@ impl Engine {
             } => self.report(|s| s.update_account(&account, name, local_dir)),
             Command::ListDir { account, path } => {
                 let result = self.list_dir(&account, &path).map_err(|e| format!("{e:#}"));
+                if let Err(e) = &result {
+                    self.check_sign_in(&account, e);
+                }
                 self.emit.send(Event::Dir {
                     account,
                     path,
@@ -519,6 +568,16 @@ impl Engine {
             self.error(None, format!("DriveCraft does not support \"{provider}\"."));
             return;
         };
+        if !matches!(p.sign_in, SignIn::Browser) {
+            self.error(
+                None,
+                format!("Cannot connect the account: {} needs a password.", p.label),
+            );
+            return;
+        }
+        if self.sign_in_runs() {
+            return;
+        }
         let mut options: Vec<(String, String)> = p
             .options
             .iter()
@@ -539,47 +598,371 @@ impl Engine {
             };
             options.push((field.key.to_string(), v));
         }
+        let id = self.unused_remote(&provider);
+        self.browser_sign_in(
+            SignInRun {
+                id,
+                provider,
+                again: false,
+                password_key: None,
+                state: None,
+            },
+            Some(options),
+        );
+    }
+
+    /// A remote name that no remote and no account has. It never shows in
+    /// the UI: "onedrive", "onedrive-2", …
+    fn unused_remote(&mut self, provider: &str) -> String {
         let remotes = self.list_remotes().unwrap_or_default();
-        // The remote name never shows in the UI: "onedrive", "onedrive-2", …
-        let id = (1..)
+        (1..)
             .map(|n| match n {
-                1 => provider.clone(),
+                1 => provider.to_string(),
                 n => format!("{provider}-{n}"),
             })
             .find(|id| !remotes.contains(id) && self.settings.account(id).is_none())
-            .expect("an unused remote name exists");
-        self.emit.send(Event::AccountConnecting);
+            .expect("an unused remote name exists")
+    }
+
+    /// True, with an error message, while a different sign-in runs.
+    fn sign_in_runs(&mut self) -> bool {
+        if self.signing_in.is_some() {
+            self.error(None, "Finish the sign-in that runs now first.".into());
+        }
+        self.signing_in.is_some()
+    }
+
+    /// Starts rclone for a sign-in in the browser: `config create` with
+    /// `options` for a new account, else `config reconnect`. The sign-in
+    /// can take minutes, so it runs on its own thread.
+    fn browser_sign_in(&mut self, run: SignInRun, options: Option<Vec<(String, String)>>) {
+        self.emit.send(Event::SignIn(SignInStep::Browser {
+            account: run.account(),
+        }));
         self.log(
-            None,
+            run.account().as_deref(),
             format!(
                 "Sign in to {} in the browser window that opens.",
-                provider_label(&provider)
+                provider_label(&run.provider)
             ),
         );
+        let mut args: Vec<String> = match options {
+            Some(options) => ["config", "create", &run.id, &run.provider]
+                .map(String::from)
+                .into_iter()
+                .chain(options.into_iter().flat_map(|(k, v)| [k, v]))
+                .collect(),
+            // Without a terminal, rclone takes the default answers, as for
+            // `config create`. The other values of the remote stay.
+            None => vec![
+                "--auto-confirm".into(),
+                "config".into(),
+                "reconnect".into(),
+                format!("{}:", run.id),
+            ],
+        };
+        // The log file shows where a sign-in stops, for example at a proxy
+        // server.
+        let mut all: Vec<String> = vec![
+            "--config".into(),
+            Settings::rclone_config_file().display().to_string(),
+            "--log-file".into(),
+            Settings::log_file().display().to_string(),
+            "--log-level=DEBUG".into(),
+        ];
+        all.append(&mut args);
         let binary = self.binary.clone();
-        let config = Settings::rclone_config_file();
         let tx = self.self_tx.clone();
-        // The login can take minutes, so it runs on its own thread.
+        self.signing_in = Some(run);
         thread::spawn(move || {
-            // The log file shows where a sign-in stops, for example at a
-            // proxy server.
             let result = rclone_command(&binary)
-                .arg("--config")
-                .arg(&config)
-                .arg("--log-file")
-                .arg(Settings::log_file())
-                .arg("--log-level=DEBUG")
-                .args(["config", "create", &id, &provider])
-                .args(options.iter().flat_map(|(k, v)| [k, v]))
+                .args(&all)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
                 .map_err(|e| e.to_string())
-                .and_then(|child| wait_for_sign_in(child, SIGN_IN_TIMEOUT))
-                .map(|()| (id, provider));
-            let _ = tx.send(Command::AccountResult(result));
+                .and_then(|child| wait_for_sign_in(child, SIGN_IN_TIMEOUT));
+            let _ = tx.send(Command::BrowserSignInResult(result));
         });
+    }
+
+    fn sign_in_again(&mut self, id: &str) {
+        let Some(account) = self.settings.account(id).cloned() else {
+            return;
+        };
+        let Some(p) = crate::providers::provider(&account.provider) else {
+            return;
+        };
+        if !matches!(p.sign_in, SignIn::Browser) {
+            self.error(
+                Some(id),
+                format!("Type your password to sign in to {} again.", p.label),
+            );
+            return;
+        }
+        if self.sign_in_runs() {
+            return;
+        }
+        self.browser_sign_in(
+            SignInRun {
+                id: id.to_string(),
+                provider: account.provider.clone(),
+                again: true,
+                password_key: None,
+                state: None,
+            },
+            None,
+        );
+    }
+
+    /// Signs in with a password through the rclone config API. The answer
+    /// of rclone can ask for a code (`answer_sign_in`).
+    fn sign_in_with_password(
+        &mut self,
+        provider: String,
+        account: Option<String>,
+        user: String,
+        password: String,
+    ) {
+        let Some(p) =
+            crate::providers::provider(&provider).filter(|p| p.available || account.is_some())
+        else {
+            self.error(None, format!("DriveCraft does not support \"{provider}\"."));
+            return;
+        };
+        let SignIn::Password {
+            user_key,
+            password_key,
+            user_label,
+            ..
+        } = p.sign_in
+        else {
+            self.error(None, format!("{} does not use a password.", p.label));
+            return;
+        };
+        if account
+            .as_deref()
+            .is_some_and(|id| self.settings.account(id).is_none())
+        {
+            return;
+        }
+        let user = user.trim();
+        if (account.is_none() && user.is_empty()) || password.is_empty() {
+            self.error(
+                account.as_deref(),
+                format!("Type your {user_label} and your password."),
+            );
+            return;
+        }
+        if self.sign_in_runs() {
+            return;
+        }
+        let mut parameters = serde_json::Map::new();
+        for (k, v) in p.options {
+            parameters.insert(k.to_string(), json!(v));
+        }
+        if !user.is_empty() {
+            parameters.insert(user_key.into(), json!(user));
+        }
+        parameters.insert(password_key.into(), json!(password));
+        let again = account.is_some();
+        let id = match account {
+            Some(id) => id,
+            None => self.unused_remote(&provider),
+        };
+        let run = SignInRun {
+            id: id.clone(),
+            provider: provider.clone(),
+            again,
+            password_key: Some(password_key),
+            state: None,
+        };
+        self.emit.send(Event::SignIn(SignInStep::Working {
+            account: run.account(),
+        }));
+        self.signing_in = Some(run);
+        // `obscure`: rclone stores the password only in its obscured form.
+        let opt = json!({ "nonInteractive": true, "obscure": true });
+        let out = if again {
+            self.rc.call(
+                "config/update",
+                json!({ "name": id, "parameters": parameters, "opt": opt }),
+            )
+        } else {
+            self.rc.call(
+                "config/create",
+                json!({ "name": id, "type": provider, "parameters": parameters, "opt": opt }),
+            )
+        };
+        self.config_answer(out);
+    }
+
+    /// Sends the answer of the user to the question of rclone.
+    fn answer_sign_in(&mut self, answer: String) {
+        let Some(run) = self.signing_in.as_mut() else {
+            return;
+        };
+        let Some(state) = run.state.take() else {
+            return;
+        };
+        let account = run.account();
+        self.emit
+            .send(Event::SignIn(SignInStep::Working { account }));
+        let out = self.config_continue(&state, answer.trim());
+        self.config_answer(out);
+    }
+
+    fn config_continue(&mut self, state: &str, result: &str) -> Result<Value> {
+        let id = self
+            .signing_in
+            .as_ref()
+            .map(|r| r.id.clone())
+            .unwrap_or_default();
+        self.rc.call(
+            "config/update",
+            json!({
+                "name": id,
+                "parameters": {},
+                "opt": { "nonInteractive": true, "continue": true, "state": state, "result": result },
+            }),
+        )
+    }
+
+    /// Follows the answers of rclone until it asks the user, or until the
+    /// configuration is complete.
+    fn config_answer(&mut self, mut out: Result<Value>) {
+        // A limit, so that an unexpected loop of rclone cannot hang.
+        for _ in 0..10 {
+            let step = match &out {
+                Ok(v) => config_step(v),
+                Err(e) => return self.sign_in_failed(format!("{e:#}")),
+            };
+            match step {
+                ConfigStep::Done => return self.sign_in_complete(),
+                ConfigStep::Next { state, result } => out = self.config_continue(&state, &result),
+                ConfigStep::Ask {
+                    state,
+                    name,
+                    help,
+                    error,
+                } => {
+                    let Some(run) = self.signing_in.as_mut() else {
+                        return;
+                    };
+                    run.state = Some(state);
+                    let account = run.account();
+                    self.emit.send(Event::SignIn(SignInStep::Question {
+                        account,
+                        name,
+                        help,
+                        error,
+                    }));
+                    return;
+                }
+            }
+        }
+        self.sign_in_failed("rclone did not finish the sign-in.".into());
+    }
+
+    fn cancel_sign_in(&mut self) {
+        // A sign-in in the browser stops only with its time limit.
+        if self.signing_in.as_ref().is_some_and(|r| r.state.is_some()) {
+            self.sign_in_failed("You stopped the sign-in.".into());
+        }
+    }
+
+    fn sign_in_failed(&mut self, e: String) {
+        let Some(run) = self.signing_in.take() else {
+            return;
+        };
+        self.emit.send(Event::SignIn(SignInStep::Idle));
+        if run.again {
+            self.forget_password(&run);
+            self.error(Some(&run.id), format!("Cannot sign in again: {e}"));
+        } else {
+            // No remote without an account: the next sign-in starts clean.
+            let _ = self.rc.call("config/delete", json!({ "name": run.id }));
+            self.error(None, format!("Cannot connect the account: {e}"));
+        }
+    }
+
+    /// The provider accepted the sign-in.
+    fn sign_in_complete(&mut self) {
+        let Some(run) = self.signing_in.take() else {
+            return;
+        };
+        self.emit.send(Event::SignIn(SignInStep::Idle));
+        if !run.again {
+            if let Err(e) = self.add_account(run.id.clone(), run.provider.clone()) {
+                let _ = self.rc.call("config/delete", json!({ "name": run.id }));
+                self.error(None, format!("Cannot connect the account: {e:#}"));
+                return;
+            }
+            self.forget_password(&run);
+            return;
+        }
+        // A cached remote can still have the old session.
+        let _ = self.rc.call("fscache/clear", json!({}));
+        if let Err(e) = self.list_dir(&run.id, "") {
+            self.forget_password(&run);
+            self.error(Some(&run.id), format!("Cannot sign in again: {e:#}"));
+            return;
+        }
+        self.forget_password(&run);
+        let Some(a) = self.settings.account_mut(&run.id) else {
+            return;
+        };
+        a.needs_sign_in = false;
+        let name = a.name.clone();
+        self.save();
+        self.log(
+            Some(&run.id),
+            format!("You signed in to \"{name}\" again. The sync continues."),
+        );
+        self.mark_due(&run.id);
+        self.refresh_about(&run.id);
+    }
+
+    /// Removes the password from the rclone file. rclone continues with
+    /// the session of the provider (see `SignIn::Password`).
+    fn forget_password(&mut self, run: &SignInRun) {
+        let Some(key) = run.password_key else {
+            return;
+        };
+        if let Err(e) = self
+            .rc
+            .call("config/unset", json!({ "name": run.id, "keys": [key] }))
+        {
+            self.error(
+                None,
+                format!("Cannot remove the password from the rclone file: {e:#}"),
+            );
+        }
+    }
+
+    /// Marks an account that needs a new sign-in, when `error` says that
+    /// the provider ended the sign-in. Its syncs stop until then.
+    fn check_sign_in(&mut self, id: &str, error: &str) {
+        if !expired(error) {
+            return;
+        }
+        let Some(a) = self.settings.account_mut(id) else {
+            return;
+        };
+        if a.needs_sign_in {
+            return;
+        }
+        a.needs_sign_in = true;
+        let (name, provider) = (a.name.clone(), a.provider.clone());
+        self.save();
+        self.error(
+            Some(id),
+            format!(
+                "{} ended the sign-in of \"{name}\". Sign in again to continue the sync.",
+                provider_label(&provider)
+            ),
+        );
     }
 
     /// Adds an account for the rclone remote `id`. Like the official
@@ -638,6 +1021,13 @@ impl Engine {
         };
         if !trash_folder {
             return self.remove_account(id, false);
+        }
+        if account.needs_sign_in && !account.awaiting_selection {
+            bail!(
+                "Sign in to \"{}\" again first: the last sync before the sign-out needs it. \
+                 Or sign out with \"Keep the folder\".",
+                account.name
+            );
         }
         if account.awaiting_selection {
             // Never synced: files in the folder are not online.
@@ -817,7 +1207,9 @@ impl Engine {
                     used: None,
                     total: None,
                 });
-                self.log(Some(id), format!("Cannot read the storage use: {e:#}"));
+                let e = format!("{e:#}");
+                self.check_sign_in(id, &e);
+                self.log(Some(id), format!("Cannot read the storage use: {e}"));
             }
         }
     }
@@ -870,7 +1262,7 @@ impl Engine {
             if self
                 .settings
                 .account(&id)
-                .is_none_or(|a| a.awaiting_selection)
+                .is_none_or(|a| a.awaiting_selection || a.needs_sign_in)
             {
                 self.removing = None;
             } else {
@@ -885,6 +1277,7 @@ impl Engine {
                 return false;
             };
             !a.awaiting_selection
+                && !a.needs_sign_in
                 && (r.last_sync.is_none_or(|t| t.elapsed() >= interval)
                     || (a.has_pending() && r.last_ok))
         });
@@ -902,6 +1295,9 @@ impl Engine {
         };
         if a.awaiting_selection {
             return; // The first sync waits for `Command::ConfirmSelection`.
+        }
+        if a.needs_sign_in {
+            return; // It waits for `Command::SignInAgain`.
         }
         // Before a switch change, sync once with the old selection, so that no
         // local change is lost. Without a previous sync (needs_resync) this is
@@ -1285,6 +1681,9 @@ impl Engine {
     fn finish(&mut self, id: &str, ok: bool, message: String) {
         if let Some(r) = self.runtimes.get_mut(id) {
             r.last_ok = ok;
+        }
+        if !ok {
+            self.check_sign_in(id, &message);
         }
         self.emit.send(Event::SyncFinished {
             account: id.to_string(),

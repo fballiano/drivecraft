@@ -203,6 +203,8 @@ It works like the official OneDrive client before "Files On-Demand", or like sel
 - OneDrive and Google Drive block the download of files that they mark as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
   To download these files anyway, turn on **Settings > Sync > Download blocked files**. Scan such files before you open them.
 - Some providers do not report the storage use. Then the **Account** tab says so.
+- A provider can end a sign-in, for example after you change your password. Then DriveCraft stops the sync of that account and shows **Sign in again** in **Overview** and on the account page. Your files stay on this computer. After the new sign-in, the sync continues.
+  To sign in again at a different time, use **Sign in again** on the **Account** tab.
 - When a file changed on this computer and online since the last sync, DriveCraft keeps both versions. The newer version keeps the name. The other version gets a copy with "conflict" in the name, for example `report.conflict1.docx`, on both sides. **Activity** shows it as a conflict copy.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
 
@@ -214,6 +216,7 @@ DriveCraft refuses a folder that a different cloud app syncs, because two apps t
 - All systems: the folders of the Dropbox app (from its `info.json`).
 - macOS and Windows: `~/Box` (Box Drive) and `~/Google Drive` (the old Google app).
 - All systems: `~/pCloud Drive`, `~/kDrive`, and `~/Yandex.Disk`, the default folders of these apps.
+- iCloud Drive: `~/Library/Mobile Documents` on macOS, and `~/iCloudDrive` of the iCloud app for Windows.
 
 Google Drive for desktop on Windows uses a separate drive letter (for example `G:`). DriveCraft refuses the root of that drive, but not yet a folder inside it.
 
@@ -319,6 +322,10 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 
 You sign in to each provider in your browser. kDrive also needs its drive ID: the number in the address of the kDrive web app.
 Each provider has modification times and hashes, which the two-way sync needs.
+
+iCloud Drive is in development, and only test builds show it. You type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again.
+
+Mega is not available: rclone cannot set the modification time of a file on Mega. Then the two-way sync cannot find the newer version of a file, and an old copy can overwrite a newer file.
 
 ## Google Drive
 

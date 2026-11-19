@@ -70,6 +70,10 @@ pub struct Account {
     /// `download_blocked_files` is off, the filter rules exclude them, so a
     /// sync does not stop at them again.
     pub blocked_files: BTreeSet<String>,
+    /// True when the provider ended the sign-in, for example after a
+    /// password change or after 30 days for iCloud. DriveCraft does not
+    /// sync the account until the user signs in again.
+    pub needs_sign_in: bool,
 }
 
 impl Default for Account {
@@ -87,6 +91,7 @@ impl Default for Account {
             needs_resync: true,
             awaiting_selection: false,
             blocked_files: BTreeSet::new(),
+            needs_sign_in: false,
         }
     }
 }

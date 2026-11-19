@@ -7,9 +7,13 @@ pub mod other_clients;
 pub mod providers;
 pub mod rclone;
 pub mod settings;
+pub mod signin;
 pub mod snapshot;
 
 pub use engine::{Command, EngineHandle, Event, Notify, Prefs, Transfer, spawn};
-pub use providers::{Field, PROVIDERS, Provider, available_providers, provider, provider_label};
+pub use providers::{
+    Field, PROVIDERS, Provider, SignIn, available_providers, provider, provider_label,
+};
 pub use settings::{Account, KeepState, Settings};
+pub use signin::SignInStep;
 pub use snapshot::{ChangeKind, FileChange};

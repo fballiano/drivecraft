@@ -1,10 +1,13 @@
 //! The cloud providers that DriveCraft can add as accounts.
 //!
-//! Each provider is an rclone backend with a sign-in in the browser
+//! Most providers are rclone backends with a sign-in in the browser
 //! (OAuth), so `rclone config create <id> <backend> <options>` is the whole
 //! setup. Some need one value from the user first (`Provider::field`).
-//! Each provider must have modification times or hashes, because bisync
-//! needs them (see https://rclone.org/overview/).
+//! Some sign in with a password and a code in DriveCraft (`SignIn::Password`).
+//! Each provider must have modification times that rclone can set, or
+//! hashes, because bisync needs them (see https://rclone.org/overview/).
+//! Without them, bisync ignores `resyncMode: newer`, and an old local copy
+//! can overwrite a newer file online. For this reason, Mega is not here.
 
 pub struct Provider {
     /// The rclone backend, for example "drive".
@@ -17,6 +20,28 @@ pub struct Provider {
     pub available: bool,
     /// A value that the user types before the sign-in.
     pub field: Option<Field>,
+    pub sign_in: SignIn,
+}
+
+/// How the user signs in to a provider.
+pub enum SignIn {
+    /// On the website of the provider, in the browser (OAuth).
+    Browser,
+    /// With a user name and a password in DriveCraft, and then a code that
+    /// the provider sends. The password goes to rclone through its local
+    /// API, never on a command line. After the sign-in, DriveCraft removes
+    /// it from the rclone file: rclone continues with the session of the
+    /// provider. When the provider ends that session, the user signs in
+    /// again (`Account::needs_sign_in`).
+    Password {
+        /// The rclone options for the user name and the password.
+        user_key: &'static str,
+        password_key: &'static str,
+        /// The name of the user name, for example "Apple ID".
+        user_label: &'static str,
+        /// What the user must know before the sign-in.
+        hint: &'static str,
+    },
 }
 
 /// One value for `config create`, for example the drive ID of kDrive.
@@ -48,6 +73,7 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "drive",
@@ -62,6 +88,7 @@ pub const PROVIDERS: &[Provider] = &[
         // the "drive" scope).
         available: false,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "dropbox",
@@ -69,6 +96,7 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "box",
@@ -76,6 +104,7 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "pcloud",
@@ -83,6 +112,7 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "kdrive",
@@ -96,6 +126,7 @@ pub const PROVIDERS: &[Provider] = &[
             hint: "The number in the address of the kDrive web app, for example 0654321.",
             check: digits,
         }),
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "hidrive",
@@ -103,6 +134,7 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
     },
     Provider {
         id: "yandex",
@@ -110,6 +142,25 @@ pub const PROVIDERS: &[Provider] = &[
         options: &[],
         available: true,
         field: None,
+        sign_in: SignIn::Browser,
+    },
+    Provider {
+        id: "iclouddrive",
+        label: "iCloud Drive",
+        options: &[("service", "drive")],
+        // Only in debug builds until a test with a real Apple account
+        // (see AGENTS.md). "Access iCloud Data on the Web" must be on, and
+        // the trust token of Apple ends after 30 days.
+        available: cfg!(debug_assertions),
+        field: None,
+        sign_in: SignIn::Password {
+            user_key: "apple_id",
+            password_key: "password",
+            user_label: "Apple ID",
+            hint: "Use your normal Apple Account password, not an app-specific password. \
+                   On your iPhone, \"Access iCloud Data on the Web\" must be on \
+                   (Settings > Apple Account > iCloud).",
+        },
     },
 ];
 
