@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
@@ -17,7 +17,10 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::providers::provider_label;
-use crate::rclone::{Rclone, config_section, default_config_file, find_binary, write_private};
+use crate::rclone::{
+    Rclone, command as rclone_command, config_section, default_config_file, find_binary,
+    write_private,
+};
 use crate::settings::{
     Account, Settings, check_local_dir, filters_match_last_resync, is_safe_relative,
     new_account_dir, nfc,
@@ -558,21 +561,23 @@ impl Engine {
         let tx = self.self_tx.clone();
         // The login can take minutes, so it runs on its own thread.
         thread::spawn(move || {
-            let result = Process::new(&binary)
+            // The log file shows where a sign-in stops, for example at a
+            // proxy server.
+            let result = rclone_command(&binary)
                 .arg("--config")
                 .arg(&config)
+                .arg("--log-file")
+                .arg(Settings::log_file())
+                .arg("--log-level=DEBUG")
                 .args(["config", "create", &id, &provider])
                 .args(options.iter().flat_map(|(k, v)| [k, v]))
                 .stdin(Stdio::null())
-                .output()
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
                 .map_err(|e| e.to_string())
-                .and_then(|out| {
-                    if out.status.success() {
-                        Ok((id, provider))
-                    } else {
-                        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-                    }
-                });
+                .and_then(|child| wait_for_sign_in(child, SIGN_IN_TIMEOUT))
+                .map(|()| (id, provider));
             let _ = tx.send(Command::AccountResult(result));
         });
     }
@@ -1496,6 +1501,38 @@ fn live_transfers(v: &Value, remote_fs: &str, seen: &mut HashSet<String>) -> Liv
 /// `cannotDownloadAbusiveFile`).
 fn is_blocked_error(error: &str) -> bool {
     error.contains("malwareDetected") || error.contains("cannotDownloadAbusiveFile")
+}
+
+/// A sign-in that takes longer stops. Without a limit, a hanging rclone
+/// (for example behind a proxy) shows "Finish the sign-in" forever.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Waits for `rclone config create`. Its output goes to the log file, so
+/// the error text points there.
+fn wait_for_sign_in(mut child: std::process::Child, limit: Duration) -> Result<(), String> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) => {
+                return Err(format!(
+                    "rclone could not finish the sign-in. The details are in {}.",
+                    Settings::log_file().display()
+                ));
+            }
+            Ok(None) if start.elapsed() > limit => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "The sign-in did not finish in {} minutes. A proxy server or a firewall can block rclone. The details are in {}.",
+                    limit.as_secs() / 60,
+                    Settings::log_file().display()
+                ));
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(500)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
 }
 
 /// The rclone options that come from the settings, as environment

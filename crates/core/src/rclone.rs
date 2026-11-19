@@ -49,6 +49,93 @@ pub fn find_binary(setting: &str, build_rclone: Option<&Path>) -> Result<PathBuf
     }
 }
 
+/// A command that runs rclone.
+///
+/// On Windows, rclone is a console program. A GUI app that starts it gets a
+/// new console window, and a click on its close button stops rclone. So the
+/// command has `CREATE_NO_WINDOW`. It also gives rclone the proxy server of
+/// Windows: the browser uses it, but rclone reads only `HTTPS_PROXY`.
+pub fn command(binary: &Path) -> Command {
+    #[allow(unused_mut)]
+    let mut c = Command::new(binary);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        c.creation_flags(CREATE_NO_WINDOW);
+        let has_proxy = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
+            .iter()
+            .any(|v| std::env::var_os(v).is_some());
+        if !has_proxy && let Some((proxy, no_proxy)) = windows_proxy() {
+            c.env("HTTPS_PROXY", &proxy)
+                .env("HTTP_PROXY", &proxy)
+                .env("NO_PROXY", no_proxy);
+        }
+    }
+    c
+}
+
+/// The fixed proxy server of Windows (Settings > Network > Proxy), and the
+/// addresses without a proxy. A proxy script (PAC) is not supported.
+#[cfg(windows)]
+fn windows_proxy() -> Option<(String, String)> {
+    let key = windows_registry::CURRENT_USER
+        .open(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+        .ok()?;
+    if key.get_u32("ProxyEnable").ok()? == 0 {
+        return None;
+    }
+    let server = key.get_string("ProxyServer").ok()?;
+    let proxy = parse_proxy_server(&server)?;
+    let bypass = key.get_string("ProxyOverride").unwrap_or_default();
+    Some((proxy, no_proxy(&bypass)))
+}
+
+/// A `ProxyServer` value is "host:port", or a list such as
+/// "http=host:80;https=host:443". Returns the proxy for HTTPS as a URL.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_proxy_server(value: &str) -> Option<String> {
+    let value = value.trim();
+    let server = if value.contains('=') {
+        let entry = |scheme: &str| {
+            value.split(';').find_map(|part| {
+                let (k, v) = part.split_once('=')?;
+                (k.trim().eq_ignore_ascii_case(scheme)).then(|| v.trim().to_string())
+            })
+        };
+        entry("https").or_else(|| entry("http"))?
+    } else {
+        value.to_string()
+    };
+    if server.is_empty() {
+        return None;
+    }
+    Some(if server.contains("://") {
+        server
+    } else {
+        format!("http://{server}")
+    })
+}
+
+/// `ProxyOverride` ("*.local;<local>;10.*") as `NO_PROXY`. The local
+/// addresses always go without the proxy.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn no_proxy(bypass: &str) -> String {
+    let mut hosts = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+    hosts.extend(
+        bypass
+            .split(';')
+            .map(str::trim)
+            .filter(|h| !h.is_empty() && *h != "<local>")
+            .map(|h| {
+                h.trim_start_matches("*.")
+                    .trim_end_matches(".*")
+                    .to_string()
+            }),
+    );
+    hosts.join(",")
+}
+
 /// A client for the rclone remote control API.
 struct Client {
     url: String,
@@ -129,7 +216,7 @@ impl Rclone {
 
         let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
         let pass = random_token();
-        let child = Command::new(binary)
+        let child = command(binary)
             .arg("rcd")
             .arg("--config")
             .arg(config)
@@ -236,7 +323,7 @@ fn stop_previous(session_file: &Path) {
 /// `RCLONE_CONFIG` and the other rclone rules apply, because rclone itself
 /// finds the file.
 pub fn default_config_file(binary: &Path) -> Option<PathBuf> {
-    let out = Command::new(binary)
+    let out = command(binary)
         .args(["config", "file"])
         .stdin(Stdio::null())
         .output()
@@ -284,6 +371,29 @@ fn random_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_proxy_values_become_urls() {
+        assert_eq!(
+            parse_proxy_server("proxy.corp:8080").as_deref(),
+            Some("http://proxy.corp:8080")
+        );
+        assert_eq!(
+            parse_proxy_server("http=p1:80;https=p2:443;ftp=p3:21").as_deref(),
+            Some("http://p2:443"),
+            "the HTTPS entry first"
+        );
+        assert_eq!(
+            parse_proxy_server("http=p1:80").as_deref(),
+            Some("http://p1:80")
+        );
+        assert_eq!(parse_proxy_server("ftp=p3:21"), None);
+        assert_eq!(parse_proxy_server(" "), None);
+        assert_eq!(
+            no_proxy("*.corp.example;<local>;10.*"),
+            "localhost,127.0.0.1,corp.example,10"
+        );
+    }
 
     #[test]
     fn config_section_returns_only_the_named_section() {

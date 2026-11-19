@@ -27,6 +27,9 @@ fn main() {
 
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    if os == "windows" {
+        windows_resources();
+    }
     let exe_name = if os == "windows" {
         "rclone.exe"
     } else {
@@ -133,3 +136,19 @@ fn make_executable(path: &Path) {
 
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) {}
+
+/// Gives DriveCraft.exe its icon, and the name and the version that
+/// Explorer and the crash reports of Windows show. Without them, Windows
+/// shows a default icon and the version 0.0.0.0.
+fn windows_resources() {
+    println!("cargo:rerun-if-changed=assets/DriveCraft.ico");
+    let mut res = winresource::WindowsResource::new();
+    res.set_icon("assets/DriveCraft.ico")
+        .set("ProductName", "DriveCraft")
+        .set("FileDescription", "DriveCraft")
+        .set("CompanyName", "Fabrizio Balliano")
+        .set("LegalCopyright", "MIT or Apache-2.0");
+    if let Err(e) = res.compile() {
+        panic!("cannot embed the icon and the version of DriveCraft.exe: {e}");
+    }
+}
