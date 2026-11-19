@@ -267,6 +267,18 @@ impl Rclone {
         self.client.call(method, params)
     }
 
+    /// The exit status, if rclone stopped by itself. Then every call fails
+    /// with "no connection to rclone".
+    pub fn exited(&mut self) -> Option<String> {
+        if self.stopped {
+            return None;
+        }
+        match self.child.try_wait() {
+            Ok(Some(status)) => Some(status.to_string()),
+            _ => None,
+        }
+    }
+
     pub fn version(&self) -> Result<String> {
         let v = self.call("core/version", json!({}))?;
         Ok(v["version"].as_str().unwrap_or("unknown").to_string())

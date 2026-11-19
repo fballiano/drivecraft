@@ -341,7 +341,15 @@ struct Engine {
     removing: Option<String>,
     /// The sign-in that runs. Only one runs at a time.
     signing_in: Option<SignInRun>,
+    /// When rclone stopped by itself, in the last `RCLONE_EXIT_WINDOW`.
+    rclone_exits: Vec<Instant>,
 }
+
+/// rclone can stop by itself, for example when security software ends the
+/// process. DriveCraft starts it again, but not more than
+/// `MAX_RCLONE_EXITS` times in `RCLONE_EXIT_WINDOW`.
+const MAX_RCLONE_EXITS: usize = 3;
+const RCLONE_EXIT_WINDOW: Duration = Duration::from_secs(10 * 60);
 
 /// A sign-in that runs.
 struct SignInRun {
@@ -414,6 +422,7 @@ impl Engine {
             last_folder_check: Instant::now(),
             removing: None,
             signing_in: None,
+            rclone_exits: Vec::new(),
         })
     }
 
@@ -1156,6 +1165,39 @@ impl Engine {
         Ok(())
     }
 
+    /// Finds an rclone that stopped by itself, and starts it again (after
+    /// the running sync fails), or stops the engine when it stops too often.
+    fn check_rclone(&mut self) {
+        // After too many stops, the engine reported a fatal error once.
+        if self.restart_rclone || self.rclone_exits.len() > MAX_RCLONE_EXITS {
+            return;
+        }
+        let Some(status) = self.rc.exited() else {
+            return;
+        };
+        let log = Settings::log_file();
+        self.rclone_exits
+            .retain(|t| t.elapsed() < RCLONE_EXIT_WINDOW);
+        self.rclone_exits.push(Instant::now());
+        if self.rclone_exits.len() > MAX_RCLONE_EXITS {
+            self.emit.send(Event::Fatal(format!(
+                "rclone stopped {} times in 10 minutes ({status}). Security software can \
+                 stop it. The details are in {}.",
+                self.rclone_exits.len(),
+                log.display()
+            )));
+            return;
+        }
+        self.error(
+            None,
+            format!(
+                "rclone stopped ({status}). DriveCraft starts it again. The details are in {}.",
+                log.display()
+            ),
+        );
+        self.restart_rclone = true;
+    }
+
     /// Starts rclone again with the options of the settings. Only call it
     /// while no sync runs.
     fn restart_rclone(&mut self) {
@@ -1245,6 +1287,7 @@ impl Engine {
     }
 
     fn tick(&mut self) {
+        self.check_rclone();
         if self.sync.is_some() {
             self.poll_job();
             return;
