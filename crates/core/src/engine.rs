@@ -2312,6 +2312,25 @@ mod tests {
 
     /// The shape of a real rclone 1.76 answer during a bisync.
     #[test]
+    fn a_stale_lock_path_comes_from_the_bisync_error() {
+        // An absolute path on each system, with a space in it.
+        let lock = std::env::temp_dir()
+            .join("bisync")
+            .join("Users_me_DriveCraft_iCloud Drive..iclouddrive_.lck");
+        let error = format!(
+            "prior lock file found: {} \nTip: this indicates",
+            lock.display()
+        );
+        assert_eq!(stale_lock_path(&error), Some(lock));
+        assert_eq!(
+            stale_lock_path("prior lock file found: /etc/passwd\n"),
+            None
+        );
+        assert_eq!(stale_lock_path("bisync aborted"), None);
+        assert!(process_runs(std::process::id()) || cfg!(windows));
+    }
+
+    #[test]
     fn live_transfers_reads_direction_errors_and_skips_seen_entries() {
         let v = json!({ "transferred": [
             { "name": "Docs/a.pdf", "error": "", "checked": false, "group": "job/6",
@@ -2348,19 +2367,6 @@ mod tests {
             "corrupted on transfer: sizes differ src() 906126 vs dst(Local file system at /x) 493140"
         ));
         assert!(!is_package_error("HTTP error 500"));
-        let error = "prior lock file found: /Users/me/Library/Caches/rclone/bisync/Users_me_DriveCraft_iCloud Drive..iclouddrive_.lck \nTip: this indicates";
-        assert_eq!(
-            stale_lock_path(error),
-            Some(PathBuf::from(
-                "/Users/me/Library/Caches/rclone/bisync/Users_me_DriveCraft_iCloud Drive..iclouddrive_.lck"
-            ))
-        );
-        assert_eq!(
-            stale_lock_path("prior lock file found: /etc/passwd\n"),
-            None
-        );
-        assert_eq!(stale_lock_path("bisync aborted"), None);
-        assert!(process_runs(std::process::id()) || cfg!(windows));
         // The next poll returns the same entries: nothing is new.
         assert_eq!(
             live_transfers(&v, "onedrive:", &mut seen),
