@@ -162,6 +162,10 @@ fn overview(app: &mut App, ui: &mut Ui) {
     ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         status_card(app, ui, &status);
         ui.add_space(14.0);
+        if app.update.is_some() {
+            update_card(app, ui);
+            ui.add_space(14.0);
+        }
 
         let accounts: Vec<Account> = app.accounts().to_vec();
         for a in &accounts {
@@ -207,6 +211,40 @@ fn overview(app: &mut App, ui: &mut Ui) {
                 activity_row(ui, entry, &names);
             }
         });
+    });
+}
+
+/// A newer release of DriveCraft. DriveCraft does not install it itself:
+/// the user downloads it from the release page.
+fn update_card(app: &mut App, ui: &mut Ui) {
+    let Some(update) = app.update.clone() else {
+        return;
+    };
+    card(ui, |ui| {
+        widgets::text_and_actions(
+            ui,
+            Align::Center,
+            |ui| {
+                card_title(
+                    ui,
+                    icons::DOWNLOAD,
+                    &format!("DriveCraft {} is available", update.version),
+                    Some(&format!(
+                        "You have version {}. Download the new version and install it \
+                         as the first time. Your accounts and settings stay.",
+                        drivecraft_core::update::CURRENT
+                    )),
+                );
+            },
+            |ui, ()| {
+                if secondary(ui, true, "Not now").clicked() {
+                    app.update = None;
+                }
+                if primary(ui, true, &format!("{}  Download", icons::DOWNLOAD)).clicked() {
+                    crate::open_url(&update.url);
+                }
+            },
+        );
     });
 }
 
@@ -833,6 +871,31 @@ fn settings(app: &mut App, ui: &mut Ui) {
                     },
                 );
             }
+            widgets::separator(ui);
+            setting_row(
+                ui,
+                "Check for updates",
+                "Once a day, DriveCraft asks GitHub for a new version. It sends no data about \
+                 you. Homebrew, Scoop, Flatpak, and the AUR update DriveCraft themselves.",
+                |ui, _| {
+                    let (rect, _) = ui.allocate_exact_size(vec2(34.0, 20.0), Sense::hover());
+                    let on = s.check_updates;
+                    if widgets::toggle_at(
+                        ui,
+                        rect,
+                        Id::unique("check-updates"),
+                        on,
+                        true,
+                        "Check for updates",
+                    )
+                    .clicked()
+                    {
+                        let mut prefs = Prefs::from_settings(&s);
+                        prefs.check_updates = !on;
+                        app.engine.send(Command::UpdatePrefs(prefs));
+                    }
+                },
+            );
         });
         ui.add_space(14.0);
 

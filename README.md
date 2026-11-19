@@ -138,6 +138,7 @@ has no tray icon yet.
 - Click the tray icon to open the window. Click it again to hide the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
 - DriveCraft starts when you sign in to the computer, after you add the first account. Then it starts in the tray, without its window. On Linux, the window opens. To stop this, turn off **Settings > Sync > Start at login**.
+- When you installed DriveCraft from a download (a zip, an installer, or a `tar.gz`), it asks GitHub once a day for a new version. Then **Overview** shows **Download**, which opens the release page. DriveCraft sends no data about you, and it has no server, so only GitHub sees the request. Homebrew, Scoop, Flatpak, and the AUR update DriveCraft themselves, so these installs do not check. To stop the check, turn off **Settings > Sync > Check for updates**.
   - macOS: a login item in `~/Library/LaunchAgents`. System Settings shows it in **General > Login Items**.
   - Windows: the `Run` key of your user in the registry.
   - Linux: a file in `~/.config/autostart`. In a Flatpak, the desktop asks for your permission.

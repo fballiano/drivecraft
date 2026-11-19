@@ -109,6 +109,7 @@ pub struct Prefs {
     pub sync_interval_minutes: u64,
     pub download_blocked_files: bool,
     pub start_at_login: bool,
+    pub check_updates: bool,
 }
 
 impl Prefs {
@@ -117,6 +118,7 @@ impl Prefs {
             sync_interval_minutes: s.sync_interval_minutes,
             download_blocked_files: s.download_blocked_files,
             start_at_login: s.start_at_login,
+            check_updates: s.check_updates,
         }
     }
 }
@@ -177,6 +179,8 @@ pub enum Event {
         account: Option<String>,
         text: String,
     },
+    /// A newer release of DriveCraft exists (`update::check`).
+    UpdateAvailable(crate::update::Update),
 }
 
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
@@ -353,7 +357,13 @@ struct Engine {
     signing_in: Option<SignInRun>,
     /// When rclone stopped by itself, in the last `RCLONE_EXIT_WINDOW`.
     rclone_exits: Vec<Instant>,
+    /// True when this install checks for updates (`update::wanted`).
+    update_wanted: bool,
+    last_update_check: Option<Instant>,
 }
+
+/// The time between two update checks.
+const UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// rclone can stop by itself, for example when security software ends the
 /// process. DriveCraft starts it again, but not more than
@@ -436,6 +446,8 @@ impl Engine {
             removing: None,
             signing_in: None,
             rclone_exits: Vec::new(),
+            update_wanted: crate::update::wanted(),
+            last_update_check: None,
         })
     }
 
@@ -1245,6 +1257,10 @@ impl Engine {
     fn update_prefs(&mut self, p: Prefs) {
         self.settings.sync_interval_minutes = p.sync_interval_minutes.max(1);
         self.settings.start_at_login = p.start_at_login;
+        if p.check_updates && !self.settings.check_updates {
+            self.last_update_check = None;
+        }
+        self.settings.check_updates = p.check_updates;
         if self.settings.download_blocked_files != p.download_blocked_files {
             // The filter rules change too, so the next syncs are resyncs.
             // Turned on, they download the blocked files.
@@ -1287,6 +1303,26 @@ impl Engine {
         }
         self.save();
         Ok(())
+    }
+
+    /// Asks GitHub for a new version, once a day, on a thread of its own.
+    /// A failed check stays quiet: it tries again the next day.
+    fn check_update(&mut self) {
+        if !self.update_wanted
+            || !self.settings.check_updates
+            || self
+                .last_update_check
+                .is_some_and(|t| t.elapsed() < UPDATE_INTERVAL)
+        {
+            return;
+        }
+        self.last_update_check = Some(Instant::now());
+        let emit = self.emit.clone();
+        thread::spawn(move || {
+            if let Ok(Some(update)) = crate::update::check() {
+                emit.send(Event::UpdateAvailable(update));
+            }
+        });
     }
 
     /// Finds an rclone that stopped by itself, and starts it again (after
@@ -1486,6 +1522,7 @@ impl Engine {
 
     fn tick(&mut self) {
         self.check_rclone();
+        self.check_update();
         if self.sync.is_some() {
             self.poll_job();
             return;

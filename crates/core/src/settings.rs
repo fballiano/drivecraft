@@ -22,6 +22,9 @@ pub struct Settings {
     /// registers itself only while at least one account exists. Settings
     /// from an older version get the default, true.
     pub start_at_login: bool,
+    /// Asks GitHub once a day for a new version, when no package manager
+    /// updates DriveCraft (`update::wanted`). On by default.
+    pub check_updates: bool,
     /// The accounts, in the order of the sidebar.
     pub accounts: Vec<Account>,
 }
@@ -33,6 +36,7 @@ impl Default for Settings {
             sync_interval_minutes: 10,
             download_blocked_files: false,
             start_at_login: true,
+            check_updates: true,
             accounts: Vec::new(),
         }
     }

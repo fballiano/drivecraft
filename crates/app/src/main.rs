@@ -264,6 +264,8 @@ struct App {
     password_form: Option<PasswordForm>,
     /// The answer to `SignInStep::Question`, while the user types it.
     sign_in_answer: String,
+    /// A newer release, until the user selects "Not now".
+    update: Option<drivecraft_core::update::Update>,
     /// Per account, by id.
     trees: HashMap<String, Tree>,
     storage: HashMap<String, (u64, u64)>,
@@ -374,6 +376,7 @@ impl App {
             sign_in: SignInStep::Idle,
             password_form: None,
             sign_in_answer: String::new(),
+            update: None,
             trees: HashMap::new(),
             storage: HashMap::new(),
             no_storage: HashSet::new(),
@@ -558,6 +561,7 @@ impl App {
                     self.new_folders.insert(account, names);
                 }
                 Event::Log { account, text } => self.add_activity(EntryKind::Info, account, text),
+                Event::UpdateAvailable(update) => self.update = Some(update),
                 Event::Error { account, text } => {
                     self.add_activity(EntryKind::Error, account, text);
                 }
@@ -857,6 +861,18 @@ pub fn file_manager_name() -> &'static str {
     } else {
         "Files"
     }
+}
+
+/// Opens a web page in the default browser.
+pub fn open_url(url: &str) {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let _ = std::process::Command::new(program).arg(url).spawn();
 }
 
 pub fn open_in_file_manager(path: &Path) {
@@ -1246,6 +1262,12 @@ mod preview {
                 app
             };
             shoot("overview-sign-in", expired(Page::Overview), dark);
+            let mut update = demo_synced(Page::Overview);
+            update.update = Some(drivecraft_core::update::Update {
+                version: "1.0.0".into(),
+                url: "https://github.com/fballiano/drivecraft/releases/latest".into(),
+            });
+            shoot("overview-update", update, dark);
             shoot("account-sign-in", expired(personal()), dark);
             let mut browser = expired(personal());
             browser.sign_in = SignInStep::Browser {

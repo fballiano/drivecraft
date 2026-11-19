@@ -10,6 +10,7 @@ pub mod rclone;
 pub mod settings;
 pub mod signin;
 pub mod snapshot;
+pub mod update;
 
 pub use engine::{Command, EngineHandle, Event, Notify, Prefs, Transfer, spawn};
 pub use providers::{
