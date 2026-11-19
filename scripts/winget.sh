@@ -16,7 +16,7 @@ out="$root/target/winget/manifests/f/FabrizioBalliano/DriveCraft/$version"
 base="https://github.com/fballiano/drivecraft/releases/download/v$version"
 # The AppId in packaging/windows/drivecraft.iss, with the suffix of Inno Setup.
 product_code='{3A7893EC-F309-4316-BD01-E6193C68A893}_is1'
-schema=1.12.0
+schema=1.28.0
 release_date=$(gh release view "v$version" --repo fballiano/drivecraft --json publishedAt -q '.publishedAt[:10]')
 
 tmp=$(mktemp -d)
