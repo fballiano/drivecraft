@@ -199,6 +199,8 @@ struct App {
     /// The account that waits for a second click on "Sign out".
     /// The sign-out dialog, while it is open.
     sign_out: Option<SignOut>,
+    /// A provider that needs a value before the sign-in, and the value.
+    add_field: Option<(String, String)>,
 }
 
 impl App {
@@ -259,6 +261,7 @@ impl App {
             form_interval: 10,
             form_name: None,
             sign_out: None,
+            add_field: None,
         }
     }
 
@@ -893,6 +896,15 @@ mod preview {
                 dark,
             );
             shoot("add-account", demo_app(Page::AddAccount), dark);
+            let mut kdrive = demo_app(Page::AddAccount);
+            kdrive.add_field = Some(("kdrive".into(), "0654321".into()));
+            shoot("add-account-kdrive", kdrive, dark);
+            shoot_sized(
+                "add-account-narrow",
+                demo_app(Page::AddAccount),
+                dark,
+                780.0,
+            );
             shoot("activity", demo_app(Page::Activity), dark);
             let mut busy = demo_app(Page::Activity);
             busy.syncing = Some(Syncing {

@@ -9,6 +9,6 @@ pub mod settings;
 pub mod snapshot;
 
 pub use engine::{Command, EngineHandle, Event, Notify, Prefs, Transfer, spawn};
-pub use providers::{PROVIDERS, Provider, available_providers, provider, provider_label};
+pub use providers::{Field, PROVIDERS, Provider, available_providers, provider, provider_label};
 pub use settings::{Account, KeepState, Settings};
 pub use snapshot::{ChangeKind, FileChange};

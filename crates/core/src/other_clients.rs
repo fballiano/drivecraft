@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 /// - OneDrive on Linux: the `sync_dir` of the `onedrive` client (abraunegg);
 /// - Dropbox: the folders in its `info.json`, on all systems;
 /// - Box Drive and the old Google "Backup and Sync" app on macOS and
-///   Windows: `~/Box` and `~/Google Drive`.
+///   Windows: `~/Box` and `~/Google Drive`;
+/// - the default folders of pCloud Drive, kDrive, and Yandex Disk.
 pub fn folders(home: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     #[cfg(windows)]
@@ -30,6 +31,15 @@ pub fn folders(home: &Path) -> Vec<PathBuf> {
     if cfg!(any(target_os = "macos", windows)) {
         out.push(home.join("Box"));
         out.push(home.join("Google Drive"));
+    }
+    // The default folders of the apps of pCloud, kDrive, and Yandex Disk.
+    for name in [
+        "pCloud Drive",
+        "kDrive",
+        "Yandex.Disk",
+        "Yandex.Disk.localized",
+    ] {
+        out.push(home.join(name));
     }
     out
 }

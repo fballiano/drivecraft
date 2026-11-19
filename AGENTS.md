@@ -1,6 +1,6 @@
 # DriveCraft
 
-An open source client for OneDrive, Dropbox, and Box: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work. It is a local file with notes about the user's machine: it is in `.gitignore`, never commit it (the repository is public).
+An open source client for OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk: a Rust core that drives a bundled rclone, with an egui UI and a tray icon. `README.md` describes the behavior for users. Read `HANDOFF.md` when you pick up unfinished work. It is a local file with notes about the user's machine: it is in `.gitignore`, never commit it (the repository is public).
 
 ## Decisions the user made
 
@@ -13,7 +13,7 @@ Keep these unless the user changes them:
 - **One real local folder with selective sync.** The user rejected a remote mount: no `rclone mount`, no "browse online" option.
 - **Folder layout:** `~/DriveCraft/<account>`, default `~/DriveCraft/OneDrive`. `~/DriveCraft` never syncs. It leaves space for more accounts (more OneDrive accounts, later other providers) and never collides with other clients.
 - **No coexistence with the official clients.** People replace them, so DriveCraft does not detect them at run time. It only refuses their folders and explains the change.
-- **Providers:** only rclone backends with a sign-in in the browser, listed in `providers.rs` (OneDrive, Dropbox, Box; Google Drive is ready but hidden with `available: false`, because rclone's shared Google client ID stops working in 2026 and DriveCraft has no client ID of its own yet). The Add account page and the welcome page show one button for each. Add a provider only after a test with a real account. Providers that need a password or keys (Proton Drive, Nextcloud, S3) come later, with a form.
+- **Providers:** only rclone backends with a sign-in in the browser, listed in `providers.rs` (OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, Yandex Disk; Google Drive is ready but hidden with `available: false`, because rclone's shared Google client ID stops working in 2026 and DriveCraft has no client ID of its own yet). The Add account page and the welcome page show one button for each. A provider that needs a value before the sign-in has a `Field` (kDrive: `drive_id`, digits only); the engine checks the value again, because it goes to the rclone command line. A new provider needs modification times or hashes in the rclone feature table, because bisync needs them. Add a provider only after a test with a real account. Providers that need a password or keys (Proton Drive, Nextcloud, S3) come later, with a form.
 - **Tray icon like OneDrive.** A click opens the normal window. Closing the window hides it to the tray.
 - **Dock icon on macOS only while the window is open** (`set_dock_icon` in `main.rs`, `NSApplication.setActivationPolicy`).
 - **The first sync waits for the folder selection.** After a sign-in, `Account::awaiting_selection` blocks every sync of that account until `Command::ConfirmSelection` (**Start sync** on its Folders tab).

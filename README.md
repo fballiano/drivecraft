@@ -1,6 +1,6 @@
 # DriveCraft
 
-DriveCraft is an open source client for OneDrive, Dropbox, and Box, on macOS, Windows, and Linux. It syncs one or more accounts.
+DriveCraft is an open source client for OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk, on macOS, Windows, and Linux. It syncs one or more accounts.
 It uses [rclone](https://rclone.org) to connect to the cloud.
 The UI uses [egui](https://github.com/emilk/egui).
 
@@ -81,6 +81,7 @@ DriveCraft refuses a folder that a different cloud app syncs, because two apps t
 - Linux: the `sync_dir` folder of the `onedrive` client.
 - All systems: the folders of the Dropbox app (from its `info.json`).
 - macOS and Windows: `~/Box` (Box Drive) and `~/Google Drive` (the old Google app).
+- All systems: `~/pCloud Drive`, `~/kDrive`, and `~/Yandex.Disk`, the default folders of these apps.
 
 Google Drive for desktop on Windows uses a separate drive letter (for example `G:`). DriveCraft refuses the root of that drive, but not yet a folder inside it.
 
@@ -190,6 +191,11 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 
 `<id>` is the rclone remote of the account: `onedrive`, `onedrive-2`, and so on. Settings from a version with one account change to the new format at the first start. The files of that account get the new names, so no full resync is necessary.
 
+## Providers
+
+You sign in to each provider in your browser. kDrive also needs its drive ID: the number in the address of the kDrive web app.
+Each provider has modification times and hashes, which the two-way sync needs.
+
 ## Google Drive
 
 Google Drive is not available yet. rclone's shared Google sign-in stops working during 2026.
@@ -197,6 +203,6 @@ DriveCraft needs a Google sign-in of its own first. The code for Google Drive is
 
 ## Plan
 
-- Phase 1 (this version): one or more accounts of OneDrive, Dropbox, and Box; one local folder for each account with selective sync; sync at an interval.
+- Phase 1 (this version): one or more accounts of OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk; one local folder for each account with selective sync; sync at an interval.
 - Phase 2: tray icon, immediate sync when a local file changes, notifications, a conflict window.
 - Phase 3: integration with Finder and Explorer (status icons, placeholder files).

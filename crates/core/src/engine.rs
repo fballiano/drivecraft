@@ -27,9 +27,11 @@ use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
 #[derive(Debug)]
 pub enum Command {
     /// Signs in to a new account of `provider` (for example "onedrive").
-    /// rclone opens the login page in the browser.
+    /// rclone opens the login page in the browser. `value` is the value of
+    /// `Provider::field`, if the provider has one.
     AddAccount {
         provider: String,
+        value: Option<String>,
     },
     /// Signs out: removes the account and its rclone remote. With
     /// `trash_folder`, a last sync runs first; only after it succeeds does
@@ -407,7 +409,7 @@ impl Engine {
 
     fn handle(&mut self, cmd: Command) {
         match cmd {
-            Command::AddAccount { provider } => self.connect_account(provider),
+            Command::AddAccount { provider, value } => self.connect_account(provider, value),
             Command::AccountResult(Ok((id, provider))) => {
                 if let Err(e) = self.add_account(id.clone(), provider) {
                     // No remote without an account: the next sign-in starts clean.
@@ -504,14 +506,31 @@ impl Engine {
         }
     }
 
-    fn connect_account(&mut self, provider: String) {
-        let Some(options) = crate::providers::provider(&provider)
-            .filter(|p| p.available)
-            .map(|p| p.options)
-        else {
+    fn connect_account(&mut self, provider: String, value: Option<String>) {
+        let Some(p) = crate::providers::provider(&provider).filter(|p| p.available) else {
             self.error(None, format!("DriveCraft does not support \"{provider}\"."));
             return;
         };
+        let mut options: Vec<(String, String)> = p
+            .options
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        if let Some(field) = &p.field {
+            // The value goes to the rclone command line, so only a value
+            // that passes the check of the field.
+            let Some(v) = value.as_deref().and_then(|v| field.accept(v)) else {
+                self.error(
+                    None,
+                    format!(
+                        "Cannot connect the account: the {} is not valid.",
+                        field.label
+                    ),
+                );
+                return;
+            };
+            options.push((field.key.to_string(), v));
+        }
         let remotes = self.list_remotes().unwrap_or_default();
         // The remote name never shows in the UI: "onedrive", "onedrive-2", …
         let id = (1..)
@@ -538,7 +557,7 @@ impl Engine {
                 .arg("--config")
                 .arg(&config)
                 .args(["config", "create", &id, &provider])
-                .args(options.iter().flat_map(|(k, v)| [*k, *v]))
+                .args(options.iter().flat_map(|(k, v)| [k, v]))
                 .stdin(Stdio::null())
                 .output()
                 .map_err(|e| e.to_string())

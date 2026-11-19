@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use drivecraft_core::{
-    Account, ChangeKind, Command, KeepState, Prefs, Transfer, available_providers, provider_label,
+    Account, ChangeKind, Command, KeepState, Prefs, Transfer, available_providers, provider,
+    provider_label,
 };
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Rect,
@@ -1417,7 +1418,7 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(
-                        "An open source client for OneDrive, Dropbox, and Box.\n\
+                        "An open source client for OneDrive, Dropbox, Box, and more.\n\
                          Sign in to your first account to start.",
                     )
                     .font(regular(14.0))
@@ -1480,26 +1481,93 @@ fn sign_in(app: &mut App, ui: &mut Ui) {
     }
     let gap = 10.0;
     let providers: Vec<_> = available_providers().collect();
-    // All in one row, or one under the other: never a row with a gap.
+    // As many in a row as fit, in rows of the same length (4 + 3, not 6 + 1).
     let fit = ((ui.available_width() + gap) / (150.0 + gap)) as usize;
-    let columns = if fit >= providers.len() {
-        providers.len().max(1)
-    } else {
-        1
-    };
+    let n = providers.len().max(1);
+    let rows = n.div_ceil(fit.clamp(1, n));
+    let columns = n.div_ceil(rows);
     let width = ((ui.available_width() - gap * (columns - 1) as f32) / columns as f32).floor();
     for row in providers.chunks(columns) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             for p in row {
                 if widgets::provider_button(ui, width, p.label).clicked() {
-                    app.engine.send(Command::AddAccount {
-                        provider: p.id.into(),
-                    });
+                    if p.field.is_some() {
+                        app.add_field = Some((p.id.to_string(), String::new()));
+                    } else {
+                        app.add_field = None;
+                        app.engine.send(Command::AddAccount {
+                            provider: p.id.into(),
+                            value: None,
+                        });
+                    }
                 }
             }
         });
         ui.add_space(gap - ui.spacing().item_spacing.y);
+    }
+    provider_field(app, ui);
+}
+
+/// The value that a provider needs before the sign-in, for example the
+/// drive ID of kDrive.
+fn provider_field(app: &mut App, ui: &mut Ui) {
+    let t = Tokens::of(ui);
+    let Some((id, _)) = &app.add_field else {
+        return;
+    };
+    let Some(field) = provider(id).and_then(|p| p.field.as_ref()) else {
+        return;
+    };
+    let label = provider_label(id).to_string();
+    let mut send = None;
+    let mut cancel = false;
+    ui.add_space(4.0);
+    Frame::new()
+        .fill(t.field)
+        .corner_radius(CornerRadius::same(RADIUS))
+        .inner_margin(Margin::same(14))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let Some((_, value)) = app.add_field.as_mut() else {
+                return;
+            };
+            let valid = field.accept(value);
+            widgets::text_and_actions(
+                ui,
+                Align::Center,
+                |ui| widgets::setting_label(ui, field.label, field.hint),
+                |ui, title| {
+                    if primary(ui, valid.is_some(), &format!("Sign in to {label}")).clicked() {
+                        send = valid.clone();
+                    }
+                    if secondary(ui, true, "Cancel").clicked() {
+                        cancel = true;
+                    }
+                    let edit = ui
+                        .add_sized(
+                            vec2(140.0, 32.0),
+                            egui::TextEdit::singleline(value).align(Align2::LEFT_CENTER),
+                        )
+                        .labelled_by(title);
+                    if edit.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && valid.is_some()
+                    {
+                        send = valid;
+                    }
+                },
+            );
+        });
+    if let Some(value) = send
+        && let Some((provider, _)) = app.add_field.take()
+    {
+        app.engine.send(Command::AddAccount {
+            provider,
+            value: Some(value),
+        });
+    } else if cancel {
+        app.add_field = None;
     }
 }
 
