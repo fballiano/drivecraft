@@ -84,7 +84,7 @@ The egui_kittest accessibility check fails on unnamed controls. Name them (`labe
   - **Scoop:** the release job writes `bucket/drivecraft.json` in `fballiano/scoop-bucket` from `packaging/scoop/drivecraft.json.in` (secret `SCOOP_DEPLOY_KEY`).
   - **AUR:** `drivecraft-bin`, from `packaging/aur/PKGBUILD.in` and `scripts/aur.sh`. The `aur-check` job builds it with each Linux package; the release job pushes it (secret `AUR_SSH_PRIVATE_KEY`).
   - **winget:** `FabrizioBalliano.DriveCraft`. `scripts/winget.sh <version>` writes the manifests for a manual submission; later releases use winget-releaser (secret `WINGET_TOKEN`).
-  - **Flathub:** `packaging/flatpak/io.github.fballiano.drivecraft.yml`. The `flatpak` job makes a test build. For a release, `scripts/flatpak.sh flathub <tag>` writes the manifest and `cargo-sources.json` for the Flathub repository.
+  - **Flathub:** `packaging/flatpak/io.github.fballiano.drivecraft.yml`. The `flatpak` job makes a test build. For a release, `scripts/flatpak.sh flathub <tag>` writes the manifest and `cargo-sources.json` for the Flathub repository. Not on Flathub yet. **Never open, update, or comment on a Flathub pull request:** Flathub forbids AI tools and agents in submissions and in review interactions. The user submits; see the TODO in `HANDOFF.md`.
 - At each release, add a `<release>` element to `packaging/linux/io.github.fballiano.drivecraft.metainfo.xml`. Flathub requires it.
 
 ## Writing
