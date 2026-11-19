@@ -76,6 +76,16 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.7.0" date="2026-11-19">
+      <description>
+        <ul>
+          <li>Windows: the sign-in opens no empty console window any more.</li>
+          <li>Windows: rclone uses the proxy server of the system.</li>
+          <li>Windows: DriveCraft.exe has its icon and its version.</li>
+          <li>The sign-in writes a log, and stops after 15 minutes if it cannot finish.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-11-19">
       <description>
         <ul>
