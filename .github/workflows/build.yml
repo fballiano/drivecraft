@@ -231,22 +231,42 @@ jobs:
           if-no-files-found: error
 
   # A test build of the Flatpak. Flathub makes the published one.
+  # No container: in the flatpak-github-actions image, the update of the
+  # preinstalled SDK fails with "Invalid cross-device link".
   flatpak:
     name: Flatpak (test build)
     runs-on: ubuntu-24.04
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
-      options: --privileged
     steps:
       - uses: actions/checkout@v7
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder python3-venv
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: List the crates for the offline build
         run: scripts/flatpak.sh sources
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - name: Build the Flatpak
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+            --repo=target/flatpak-repo target/flatpak-build \
+            packaging/flatpak/io.github.fballiano.drivecraft.yml
+          flatpak build-bundle target/flatpak-repo flatpak-test.flatpak io.github.fballiano.drivecraft
+      # The checks of the Flathub review. A failure here does not stop the
+      # build, but shows what Flathub can ask to change.
+      - name: Run the Flathub linter
+        continue-on-error: true
+        run: |
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+          lint() { flatpak run --command=flatpak-builder-lint org.flatpak.Builder "$@"; }
+          status=0
+          lint manifest packaging/flatpak/io.github.fballiano.drivecraft.yml || status=1
+          lint repo target/flatpak-repo || status=1
+          exit $status
+      - uses: actions/upload-artifact@v7
         with:
-          manifest-path: packaging/flatpak/io.github.fballiano.drivecraft.yml
-          bundle: flatpak-test.flatpak
-          artifact-name: flatpak-test
-          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+          name: flatpak-test
+          path: flatpak-test.flatpak
+          if-no-files-found: error
 
   # Builds and checks the AUR package with the Linux package of this run.
   aur-check:

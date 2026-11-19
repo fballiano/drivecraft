@@ -55,12 +55,11 @@ pub fn trash(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+// Flatpak exists only on Linux. On Windows, "/data/config" is not absolute.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    // Flatpak exists only on Linux. On Windows, "/data/config" is not absolute.
-    #[cfg(unix)]
     #[test]
     fn host_dir_uses_an_absolute_value_or_the_default() {
         let home = Path::new("/home/demo");
