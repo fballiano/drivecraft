@@ -323,7 +323,7 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 You sign in to each provider in your browser. kDrive also needs its drive ID: the number in the address of the kDrive web app.
 Each provider has modification times and hashes, which the two-way sync needs.
 
-iCloud Drive is in development, and only test builds show it. You type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again.
+iCloud Drive is in development, and only test builds show it. You type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again. DriveCraft replaces the iCloud app on Windows: uninstall it first. On macOS, turn off iCloud Drive in **System Settings > Apple Account > iCloud**, else the same files sync twice.
 
 Mega is not available: rclone cannot set the modification time of a file on Mega. Then the two-way sync cannot find the newer version of a file, and an old copy can overwrite a newer file.
 
