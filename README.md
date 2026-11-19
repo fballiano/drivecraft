@@ -28,7 +28,8 @@ puts no server of its own between your computer and your cloud.
 DriveCraft keeps real copies of your cloud files in a folder on your computer,
 and syncs them in both directions. You select the folders that sync; the
 other folders stay only online. It works with OneDrive, Dropbox, Box, pCloud,
-kDrive, HiDrive, and Yandex Disk, and with more than one account at a time.
+kDrive, HiDrive, Yandex Disk, iCloud Drive, and MEGA, and with more than one
+account at a time.
 
 DriveCraft runs on macOS, Windows, and Linux. For the sync, it uses
 [rclone](https://rclone.org), a tool that people trust with their files for
@@ -217,6 +218,7 @@ DriveCraft refuses a folder that a different cloud app syncs, because two apps t
 - macOS and Windows: `~/Box` (Box Drive) and `~/Google Drive` (the old Google app).
 - All systems: `~/pCloud Drive`, `~/kDrive`, and `~/Yandex.Disk`, the default folders of these apps.
 - iCloud Drive: `~/Library/Mobile Documents` on macOS, and `~/iCloudDrive` of the iCloud app for Windows.
+- All systems: `~/MEGA` and `~/MEGAsync`, the folders of the MEGA app.
 
 Google Drive for desktop on Windows uses a separate drive letter (for example `G:`). DriveCraft refuses the root of that drive, but not yet a folder inside it.
 
@@ -320,17 +322,19 @@ DriveCraft is available under the MIT license or the Apache License 2.0, at your
 
 ## Providers
 
-You sign in to each provider in your browser. kDrive also needs its drive ID: the number in the address of the kDrive web app.
+For most providers, you sign in on their website, in your browser, so DriveCraft never sees your password. kDrive also needs its drive ID: the number in the address of the kDrive web app.
 Each provider has modification times and hashes, which the two-way sync needs.
 
-iCloud Drive is in development, and only test builds show it. You type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again. DriveCraft replaces the iCloud app on Windows: uninstall it first. On macOS, turn off iCloud Drive in **System Settings > Apple Account > iCloud**, else the same files sync twice.
+**iCloud Drive:** you type your Apple ID and your password in DriveCraft, then the code that Apple shows on your devices. DriveCraft gives the password to rclone for the sign-in only, and then removes it. Apple ends the sign-in after 30 days or earlier. Then DriveCraft asks you to sign in again. DriveCraft replaces the iCloud app on Windows: uninstall it first. On macOS, turn off iCloud Drive in **System Settings > Apple Account > iCloud**, else the same files sync twice.
+With Advanced Data Protection, your iPhone asks one time for access to your iCloud data on the web: select "Allow". iCloud gives macOS packages (for example GarageBand and Logic projects) only as archives, so DriveCraft skips them and they stay in iCloud. rclone cannot read the storage use of iCloud, so DriveCraft asks Apple for it with the saved session.
 
-MEGA is in development, and only test builds show it. You type your email, your password, and the two-factor code if your account uses one. DriveCraft gives them to rclone for the sign-in only, and then removes them.
+**MEGA:** you type your email, your password, and the two-factor code if your account uses one. DriveCraft gives them to rclone for the sign-in only, and then removes them.
 rclone cannot set the modification time of a file on MEGA, so the two-way sync cannot find the newer version. For MEGA, this computer is the master:
 
 - A full sync (the first sync, a change of folders, **Full resync**) keeps the copy on this computer when a file is different on the two sides.
 - When a file changed on the two sides between two syncs, DriveCraft keeps both versions as conflict copies.
 - DriveCraft finds new, deleted, and changed files on MEGA, but not a change that keeps the same file size.
+- A free MEGA account can transfer only a limited amount in some hours. When the limit is used up, the sync stops with a message, and continues at a later sync.
 
 ## Google Drive
 
@@ -339,6 +343,6 @@ DriveCraft needs a Google sign-in of its own first. The code for Google Drive is
 
 ## Plan
 
-- Phase 1 (this version): one or more accounts of OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk; one local folder for each account with selective sync; sync at an interval.
+- Phase 1 (this version): one or more accounts of OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, Yandex Disk, iCloud Drive, and MEGA; one local folder for each account with selective sync; sync at an interval.
 - Phase 2: tray icon, immediate sync when a local file changes, notifications, a conflict window.
 - Phase 3: integration with Finder and Explorer (status icons, placeholder files).

@@ -89,7 +89,7 @@ Description: |-
   DriveCraft sends no telemetry, and puts no server of its own between your computer and your cloud.
   DriveCraft keeps real copies of your cloud files in a folder on your computer, and syncs them in both directions.
   You select the folders that sync. The other folders stay only online.
-  It works with OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk, and with more than one account at a time.
+  It works with OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, Yandex Disk, iCloud Drive, and MEGA, and with more than one account at a time.
   For the sync, DriveCraft uses rclone, a tool that people trust with their files for more than ten years. DriveCraft includes rclone.
 Tags:
 - box

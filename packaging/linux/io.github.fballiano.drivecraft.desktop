@@ -7,6 +7,6 @@ Exec=drivecraft
 Icon=io.github.fballiano.drivecraft
 Terminal=false
 Categories=Network;FileTransfer;
-Keywords=OneDrive;Dropbox;Box;pCloud;kDrive;HiDrive;Yandex;cloud;sync;rclone;
+Keywords=OneDrive;Dropbox;Box;pCloud;kDrive;HiDrive;Yandex;iCloud;MEGA;cloud;sync;rclone;
 StartupNotify=true
 StartupWMClass=io.github.fballiano.drivecraft

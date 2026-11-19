@@ -168,10 +168,9 @@ pub const PROVIDERS: &[Provider] = &[
         id: "iclouddrive",
         label: "iCloud Drive",
         options: &[("service", "drive")],
-        // Only in debug builds until a test with a real Apple account
-        // (see AGENTS.md). "Access iCloud Data on the Web" must be on, and
-        // the trust token of Apple ends after 30 days.
-        available: cfg!(debug_assertions),
+        // "Access iCloud Data on the Web" must be on, and the trust token of
+        // Apple ends after 30 days.
+        available: true,
         field: None,
         sign_in: SignIn::Password {
             user_key: "apple_id",
@@ -189,8 +188,7 @@ pub const PROVIDERS: &[Provider] = &[
         id: "mega",
         label: "MEGA",
         options: &[],
-        // Only in debug builds until a test with a real MEGA account.
-        available: cfg!(debug_assertions),
+        available: true,
         field: None,
         sign_in: SignIn::Password {
             user_key: "user",

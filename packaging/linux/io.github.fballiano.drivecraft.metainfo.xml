@@ -27,6 +27,8 @@
       <li>kDrive</li>
       <li>HiDrive</li>
       <li>Yandex Disk</li>
+      <li>iCloud Drive</li>
+      <li>MEGA</li>
     </ul>
     <p>Highlights:</p>
     <ul>
@@ -76,6 +78,18 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.9.0" date="2026-11-19">
+      <description>
+        <ul>
+          <li>New: iCloud Drive. You sign in with your Apple ID, your password, and the code that Apple shows on your devices. DriveCraft skips macOS packages, which iCloud gives only as archives, and shows the storage use.</li>
+          <li>New: MEGA. You sign in with your email, your password, and the optional two-factor code. MEGA keeps no modification times, so this computer is the master.</li>
+          <li>DriveCraft does not save the password of iCloud Drive and MEGA: rclone uses it for the sign-in only.</li>
+          <li>A sync that stopped in the middle (a crash, or a quit during a sync) no longer blocks the later syncs.</li>
+          <li>A clear message when MEGA stops at the transfer limit of a free account.</li>
+          <li>The cloud buttons are in alphabetical order.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-11-19">
       <description>
         <ul>
