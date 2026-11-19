@@ -8,7 +8,7 @@
 //! - changes from OneDrive: the lists before and after this sync
 //!   (downloaded, or deleted on this computer).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -29,14 +29,17 @@ pub struct Snapshot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChangeKind {
-    /// From OneDrive to this computer: new or changed.
+    /// From the cloud to this computer: new or changed.
     Downloaded,
-    /// From this computer to OneDrive: new or changed.
+    /// From this computer to the cloud: new or changed.
     Uploaded,
-    /// Deleted on this computer, because it was deleted on OneDrive.
+    /// Deleted on this computer, because it was deleted online.
     DeletedHere,
-    /// Deleted from OneDrive, because it was deleted on this computer.
+    /// Deleted online, because it was deleted on this computer.
     DeletedOnline,
+    /// A file changed on both sides. Bisync keeps the newer version under
+    /// the old name, and this copy with the other version (on both sides).
+    Conflict,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,9 +178,108 @@ pub fn added(old: &Snapshot, new: &Snapshot, kind: ChangeKind) -> Vec<FileChange
     out
 }
 
+/// The original path of a conflict copy that bisync made, for example
+/// "Docs/report.docx" for "Docs/report.conflict1.docx" (with
+/// `--suffix-keep-extension`) or "Docs/report.docx.conflict1" (without).
+pub fn conflict_original(path: &str) -> Option<String> {
+    let (dir, name) = match path.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, path),
+    };
+    let at = name.rfind(".conflict")?;
+    let rest = &name[at + ".conflict".len()..];
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let after = &rest[digits..];
+    if digits == 0 || !(after.is_empty() || after.starts_with('.')) || at == 0 {
+        return None;
+    }
+    let original = format!("{}{after}", &name[..at]);
+    Some(match dir {
+        Some(dir) => format!("{dir}/{original}"),
+        None => original,
+    })
+}
+
+/// Marks the conflict copies in `changes` as `ChangeKind::Conflict`, and
+/// adds their original paths (NFC) to `originals`. A delete of such an
+/// original is not a real delete: when neither side was newer, bisync
+/// renamed both versions. Those deletes go away.
+pub fn mark_conflicts(changes: &mut Vec<FileChange>, originals: &mut HashSet<String>) {
+    for c in changes.iter_mut() {
+        if let Some(original) = conflict_original(&c.path) {
+            c.kind = ChangeKind::Conflict;
+            originals.insert(crate::settings::nfc(&original));
+        }
+    }
+    changes.retain(|c| {
+        !(matches!(c.kind, ChangeKind::DeletedHere | ChangeKind::DeletedOnline)
+            && originals.contains(&crate::settings::nfc(&c.path)))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflict_copies_name_their_original() {
+        assert_eq!(
+            conflict_original("Docs/report.conflict1.docx").as_deref(),
+            Some("Docs/report.docx")
+        );
+        assert_eq!(
+            conflict_original("report.docx.conflict2").as_deref(),
+            Some("report.docx")
+        );
+        assert_eq!(
+            conflict_original("notes.conflict12").as_deref(),
+            Some("notes")
+        );
+        assert_eq!(
+            conflict_original("a/archive.tar.conflict1.gz").as_deref(),
+            Some("a/archive.tar.gz")
+        );
+        assert_eq!(conflict_original("report.docx"), None);
+        assert_eq!(conflict_original("my.conflicts.txt"), None);
+        assert_eq!(conflict_original("x.conflict.txt"), None);
+        assert_eq!(conflict_original(".conflict1"), None);
+    }
+
+    #[test]
+    fn conflicts_replace_the_false_delete() {
+        let c = |kind, path: &str| FileChange {
+            kind,
+            path: path.into(),
+        };
+        let mut originals = HashSet::new();
+        // Live: the winner downloads, the copy of the other version uploads.
+        let mut live = vec![
+            c(ChangeKind::Downloaded, "Docs/report.docx"),
+            c(ChangeKind::Uploaded, "Docs/report.conflict1.docx"),
+        ];
+        mark_conflicts(&mut live, &mut originals);
+        assert_eq!(
+            live,
+            vec![
+                c(ChangeKind::Downloaded, "Docs/report.docx"),
+                c(ChangeKind::Conflict, "Docs/report.conflict1.docx"),
+            ]
+        );
+        // Later, from the file lists: no winner, so the original is gone.
+        let mut listed = vec![
+            c(ChangeKind::DeletedHere, "Docs/report.docx"),
+            c(ChangeKind::DeletedHere, "Docs/other.txt"),
+            c(ChangeKind::Downloaded, "Docs/report.conflict2.docx"),
+        ];
+        mark_conflicts(&mut listed, &mut originals);
+        assert_eq!(
+            listed,
+            vec![
+                c(ChangeKind::DeletedHere, "Docs/other.txt"),
+                c(ChangeKind::Conflict, "Docs/report.conflict2.docx"),
+            ]
+        );
+    }
 
     fn snap(files: &[(&str, u64)]) -> Snapshot {
         Snapshot {

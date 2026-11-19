@@ -1,10 +1,98 @@
-# DriveCraft
+<div align="center">
+<img src="docs/icon.png" width="128" alt="DriveCraft" />
+<h1>DriveCraft</h1>
+<p><strong>An open source client for OneDrive, Dropbox, Box, and more, built on rclone.</strong></p>
+<p>
+<a href="https://github.com/fballiano/drivecraft/releases/latest"><img src="https://img.shields.io/github/v/release/fballiano/drivecraft?style=for-the-badge&color=6C5CE7&labelColor=1B1F23" alt="Latest release" /></a>
+<a href="https://github.com/fballiano/drivecraft/releases"><img src="https://img.shields.io/github/downloads/fballiano/drivecraft/total?style=for-the-badge&color=6C5CE7&labelColor=1B1F23" alt="Downloads" /></a>
+<img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-6C5CE7?style=for-the-badge&labelColor=1B1F23" alt="macOS, Windows, and Linux" />
+<a href="LICENSE-MIT"><img src="https://img.shields.io/badge/licence-MIT%20or%20Apache--2.0-6C5CE7?style=for-the-badge&labelColor=1B1F23" alt="MIT or Apache 2.0 licence" /></a>
+</p>
+<p><a href="https://github.com/fballiano/drivecraft/releases/latest"><img src="https://img.shields.io/badge/Download-6C5CE7?style=for-the-badge&labelColor=6C5CE7&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0iTTQgMTd2MmEyIDIgMCAwIDAgMiAyaDEyYTIgMiAwIDAgMCAyIC0ydi0yIi8+PHBhdGggZD0iTTcgMTFsNSA1bDUgLTUiLz48cGF0aCBkPSJNMTIgNGwwIDEyIi8+PC9zdmc+" alt="Download" height="36" /></a></p>
+</div>
 
-DriveCraft is an open source client for OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk, on macOS, Windows, and Linux. It syncs one or more accounts.
-It uses [rclone](https://rclone.org) to connect to the cloud.
-The UI uses [egui](https://github.com/emilk/egui).
+<table align=center><tr><td align=center>
+<strong>If you find my work valuable, please consider sponsoring</strong><br />
+<a href="https://github.com/sponsors/fballiano" target=_blank title="Sponsor me on GitHub"><img src="https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#white" alt="Sponsor me on GitHub" /></a>
+<a href="https://www.buymeacoffee.com/fballiano" target=_blank title="Buy me a coffee"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy me a coffee" /></a>
+<a href="https://www.paypal.com/paypalme/fabrizioballiano" target=_blank title="Donate via PayPal"><img src="https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate via PayPal" /></a>
+</td></tr></table>
 
-Status: early prototype (phase 1).
+---
+
+DriveCraft keeps real copies of your cloud files in a folder on your computer,
+and syncs them in both directions. You select the folders that sync; the
+other folders stay only online. It works with OneDrive, Dropbox, Box, pCloud,
+kDrive, HiDrive, and Yandex Disk, and with more than one account at a time.
+
+DriveCraft runs on macOS, Windows, and Linux. It uses
+[rclone](https://rclone.org) to connect to the cloud, and it includes rclone,
+so you install nothing else.
+
+<p align="center"><img src="docs/screenshot.png" width="800" alt="The Overview page of DriveCraft with three accounts" /></p>
+
+## Highlights
+
+- **Many clouds, many accounts.** Each account syncs to a folder of its own
+  in `~/DriveCraft`, so the accounts never mix.
+- **Selective sync.** A switch for each folder: on, it syncs to this
+  computer; off, it stays only online.
+- **You choose first.** After a sign-in, nothing downloads until you select
+  the folders and start the first sync.
+- **Live activity.** See each file while it transfers, and each file that a
+  sync changed.
+- **Safe by design.** A missing folder stops the sync, so it cannot delete
+  your files online. A file that changed on both sides keeps both versions.
+  DriveCraft refuses the folders of other cloud apps.
+- **In the tray.** DriveCraft runs in the menu bar or the system tray, like
+  the official apps.
+
+## Install
+
+### macOS
+
+DriveCraft needs macOS 11 or later.
+
+```bash
+brew tap fballiano/tap
+brew trust --tap fballiano/tap
+brew install --cask drivecraft
+```
+
+To update:
+
+```bash
+brew update
+brew upgrade --cask drivecraft
+```
+
+Or download the zip for your Mac (Apple silicon or Intel) from the
+[latest release](https://github.com/fballiano/drivecraft/releases/latest), and
+drag **DriveCraft** into **Applications**.
+
+DriveCraft is signed with an Apple Developer ID and notarized by Apple, so it
+opens like any other application.
+
+### Windows and Linux
+
+Download the package for your computer (x64 or Arm) from the
+[latest release](https://github.com/fballiano/drivecraft/releases/latest):
+
+- **Windows:** a zip file. Extract it, and start `DriveCraft.exe`. Keep
+  `rclone.exe` in the same folder. The app has no signature yet, so Windows
+  can show a warning on the first start.
+- **Linux:** a `tar.gz` file. Extract it, and start `drivecraft`. Keep
+  `rclone` in the same folder. Linux has no tray icon yet.
+
+## Getting started
+
+1. If you use the official app of your cloud, read
+   [Change from the official app](#change-from-the-official-app) first.
+2. Start DriveCraft, and select your cloud. Sign in in the browser window
+   that opens.
+3. Switch off the folders that you want only online, then select
+   **Start sync**.
+4. To add one more account, select **Add account** in the sidebar.
 
 ## The app
 
@@ -72,6 +160,7 @@ It works like the official OneDrive client before "Files On-Demand", or like sel
 - OneDrive and Google Drive block the download of files that they mark as infected with a virus. DriveCraft reports each such file one time in **Activity**, then skips it in later syncs.
   To download these files anyway, turn on **Settings > Sync > Download blocked files**. Scan such files before you open them.
 - Some providers do not report the storage use. Then the **Account** tab says so.
+- When a file changed on this computer and online since the last sync, DriveCraft keeps both versions. The newer version keeps the name. The other version gets a copy with "conflict" in the name, for example `report.conflict1.docx`, on both sides. **Activity** shows it as a conflict copy.
 - DriveCraft never syncs system files: `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and Office lock files (`~$*`, `.~lock.*`).
 
 DriveCraft refuses a folder that a different cloud app syncs, because two apps that sync the same folder can delete files:
@@ -142,7 +231,7 @@ You need Rust 1.95 or later.
 
 To run the tests, use `cargo test`.
 
-## Download and release
+## Release
 
 GitHub Actions builds DriveCraft for each push to `main` (`.github/workflows/build.yml`):
 
@@ -154,14 +243,6 @@ GitHub Actions builds DriveCraft for each push to `main` (`.github/workflows/bui
 
 The packages are in the artifacts of each workflow run.
 To make a release, push a tag such as `v0.1.0`. The workflow then publishes a release with all packages, and updates the Homebrew cask.
-
-On macOS, you can also install DriveCraft with Homebrew:
-
-```
-brew tap fballiano/tap
-brew trust --tap fballiano/tap
-brew install --cask drivecraft
-```
 
 The macOS app of a release has a Developer ID signature, and Apple notarizes it.
 The packages of a normal push have only an ad-hoc signature. On the first start, macOS refuses to open such an app. Open it from **System Settings > Privacy & Security** with **Open Anyway**.

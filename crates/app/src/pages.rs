@@ -521,6 +521,11 @@ fn activity_row(ui: &mut Ui, entry: &Entry, names: &HashMap<String, String>) {
             t.text_dim,
             "Deleted on this computer (deleted online)",
         ),
+        EntryKind::File(ChangeKind::Conflict) => (
+            icons::COPY,
+            t.warning,
+            "Conflict copy (changed on both sides)",
+        ),
         EntryKind::File(ChangeKind::DeletedOnline) => (
             icons::TRASH,
             t.text_dim,

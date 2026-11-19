@@ -806,6 +806,7 @@ mod preview {
                 change(ChangeKind::DeletedHere, "Photos/2026/IMG_2041.HEIC"),
                 change(ChangeKind::DeletedOnline, "Projects/old draft.docx"),
                 change(ChangeKind::Downloaded, "budget.xlsx"),
+                change(ChangeKind::Conflict, "Documents/plan.conflict1.docx"),
             ],
         );
         app.add_activity(

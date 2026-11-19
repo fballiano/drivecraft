@@ -22,7 +22,7 @@ use crate::settings::{
     Account, Settings, check_local_dir, filters_match_last_resync, is_safe_relative,
     new_account_dir, nfc,
 };
-use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff};
+use crate::snapshot::{ChangeKind, FileChange, Snapshot, added, diff, mark_conflicts};
 
 #[derive(Debug)]
 pub enum Command {
@@ -276,6 +276,8 @@ struct RunningSync {
     live_errors: HashSet<String>,
     /// The files that this sync found blocked for the first time.
     newly_blocked: usize,
+    /// The original paths (NFC) of the conflict copies of this sync.
+    conflicts: HashSet<String>,
 }
 
 impl RunningSync {
@@ -291,6 +293,7 @@ impl RunningSync {
             live_paths: HashSet::new(),
             live_errors: HashSet::new(),
             newly_blocked: 0,
+            conflicts: HashSet::new(),
         }
     }
 }
@@ -979,6 +982,13 @@ impl Engine {
             // Without a mode, a resync prefers path1: an old local copy
             // overwrites a newer file online. Keep the newer version.
             params["resyncMode"] = json!("newer");
+        } else {
+            // A file that changed on both sides: the newer version keeps the
+            // name, the other one becomes "name.conflict1.ext" on both
+            // sides. Nothing is lost, and the copy keeps its extension.
+            params["conflictResolve"] = json!("newer");
+            params["conflictLoser"] = json!("num");
+            params["_config"] = json!({ "SuffixKeepExtension": true });
         }
         let v = self.rc.call("sync/bisync", params)?;
         let job = v["jobid"]
@@ -1170,6 +1180,7 @@ impl Engine {
             .into_iter()
             .filter(|c| sync.live_paths.insert(nfc(&c.path)))
             .collect();
+        mark_conflicts(&mut changes, &mut sync.conflicts);
         sync.changed_count += changes.len();
         for m in messages {
             self.log(Some(&id), m);
@@ -1238,6 +1249,7 @@ impl Engine {
             matches!(c.kind, ChangeKind::DeletedHere | ChangeKind::DeletedOnline)
                 || !sync.live_paths.contains(&nfc(&c.path))
         });
+        mark_conflicts(&mut changes, &mut sync.conflicts);
         sync.changed_count += changes.len();
         let saved = after.save(&Settings::snapshot_file(&id));
         runtime.last_files = Some(after);

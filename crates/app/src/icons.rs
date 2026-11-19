@@ -22,6 +22,7 @@ pub const HOUSE: &str = "\u{e0f5}";
 pub const INFO: &str = "\u{e0f9}";
 pub const LAPTOP: &str = "\u{e1cd}";
 pub const LIST_RESTART: &str = "\u{e452}";
+pub const COPY: &str = "\u{e09e}";
 pub const LOG_OUT: &str = "\u{e10e}";
 pub const PLUS: &str = "\u{e13d}";
 pub const MOON: &str = "\u{e11e}";

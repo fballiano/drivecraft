@@ -43,6 +43,8 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 
 ## Gotchas
 
+- **Conflicts.** A normal bisync sends `conflictResolve: newer`, `conflictLoser: num`, and `_config.SuffixKeepExtension`: the newer version keeps the name, the other becomes `name.conflict1.ext` on both sides (tested with the bundled rclone). `snapshot::mark_conflicts` shows such copies as `ChangeKind::Conflict` and drops the false delete of the original when both versions were renamed.
+
 - **Google Docs** have no size and no hash. A local export is not safe in a two-way sync, so Google Drive remotes get `skip_gdocs = true` at `config create` (`providers.rs`).
 
 - **Blocked files stop a bisync.** A provider can refuse a download (OneDrive `malwareDetected`, Google `cannotDownloadAbusiveFile`), and each later bisync stops at the same file. `report_transfers` records such files in `Settings::blocked_files`, and `filter_rules` excludes them; a sync that found new ones starts again. The switch `download_blocked_files` sets `RCLONE_ONEDRIVE_AV_OVERRIDE` and `RCLONE_DRIVE_ACKNOWLEDGE_ABUSE` (`rclone_env`), so a change restarts rclone between syncs.
