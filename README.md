@@ -35,7 +35,7 @@ DriveCraft runs on macOS, Windows, and Linux. For the sync, it uses
 [rclone](https://rclone.org), a tool that people trust with their files for
 more than ten years. DriveCraft includes rclone, so you install nothing else.
 
-<p align="center"><img src="docs/demo.gif" width="800" alt="DriveCraft adds a Work account: you select its folders, start the sync, and see each file while it downloads" /></p>
+<p align="center"><img src="docs/demo.webp" width="800" alt="DriveCraft adds a Work account: you select its folders, start the sync, and see each file while it downloads" /></p>
 
 ## Highlights
 
@@ -155,7 +155,7 @@ To render each page with demo data to `target/screenshots/`, run:
 cargo test -p drivecraft screenshots -- --ignored
 ```
 
-To make `docs/demo.gif` again, run `scripts/demo-gif.sh` (it needs ImageMagick). To make the store screenshots in `docs/screenshots` again, run `scripts/store-screenshots.sh` (it needs ImageMagick). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
+To make `docs/demo.webp` again, run `scripts/demo-animation.sh` (it needs ImageMagick). To make the store screenshots in `docs/screenshots` again, run `scripts/store-screenshots.sh` (it needs ImageMagick). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
 
 ## Change from the official app
 

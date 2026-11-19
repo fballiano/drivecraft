@@ -10,6 +10,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo test -p drivecraft screenshots -- --ignored
 for page in overview add-account account-folders activity; do
-    magick "target/screenshots/$page-light.png" -resize 1600x -strip "docs/screenshots/$page.png"
+    magick "target/screenshots/$page-light.png" -strip "docs/screenshots/$page.png"
 done
 ls -l docs/screenshots
