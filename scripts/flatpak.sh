@@ -29,9 +29,11 @@ sources() {
     fi
     if [ ! -d "$tools/venv" ]; then
         python3 -m venv "$tools/venv"
-        "$tools/venv/bin/pip" install --quiet 'aiohttp>=3.9.5,<4' 'PyYAML>=6.0.2,<7' 'tomlkit>=0.13.3,<1'
+        "$tools/venv/bin/python" -m pip install --disable-pip-version-check \
+            'aiohttp>=3.9.5,<4' 'PyYAML>=6.0.2,<7' 'tomlkit>=0.13.3,<1'
     fi
-    "$tools/venv/bin/python" -I "$generator" Cargo.lock -o "${1:-packaging/flatpak/cargo-sources.json}"
+    "$tools/venv/bin/python" -c 'import aiohttp, tomlkit, yaml'
+    "$tools/venv/bin/python" "$generator" Cargo.lock -o "${1:-packaging/flatpak/cargo-sources.json}"
 }
 
 case "${1:-}" in

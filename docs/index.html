@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DriveCraft: an open source client for OneDrive, Dropbox, Box, and more</title>
-<meta name="description" content="DriveCraft keeps real copies of your cloud files in a folder on your computer, and syncs them in both directions. Free and open source, for macOS, Windows, and Linux.">
+<title>DriveCraft: replace the official apps of OneDrive, Dropbox, Box, and more</title>
+<meta name="description" content="Replace the closed source apps of OneDrive, Dropbox, Box, and more with one light, private, open source app. Built on rclone. For macOS, Windows, and Linux.">
 <link rel="icon" href="icon.png">
 <meta property="og:title" content="DriveCraft">
-<meta property="og:description" content="An open source client for OneDrive, Dropbox, Box, pCloud, kDrive, HiDrive, and Yandex Disk. For macOS, Windows, and Linux.">
+<meta property="og:description" content="Replace the closed source apps of your cloud with one light, private, open source app. Built on rclone. For macOS, Windows, and Linux.">
 <meta property="og:image" content="https://drivecraft.fabrizioballiano.com/social-preview.png">
 <meta property="og:url" content="https://drivecraft.fabrizioballiano.com/">
 <meta property="og:type" content="website">
@@ -131,7 +131,7 @@
   <div class="wrap">
     <img class="icon" src="icon.png" alt="">
     <h1>DriveCraft</h1>
-    <p class="tagline">Your cloud files in a real folder on your computer. One open source app for OneDrive, Dropbox, Box, and more.</p>
+    <p class="tagline">Replace the closed source apps of OneDrive, Dropbox, Box, and more with one light, private, open source app.</p>
     <div class="buttons" id="hero-buttons">
       <a class="button primary" href="https://github.com/fballiano/drivecraft/releases/latest">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
@@ -151,15 +151,25 @@
 
 <main class="wrap">
   <section>
-    <h2>Why DriveCraft</h2>
-    <p class="lead">DriveCraft syncs your files in both directions, like the official apps before "Files On-Demand".</p>
+    <h2>Why replace the official apps</h2>
+    <p class="lead">Large companies make the official apps, and you cannot see their code. Each cloud also needs an app of its own. DriveCraft is one app for all your clouds.</p>
+    <div class="grid">
+      <div class="card"><h3>Open source</h3><p>Anyone can read the code and examine what the app does. Use it at no cost, under the MIT or Apache 2.0 license.</p></div>
+      <div class="card"><h3>Private</h3><p>No telemetry, no advertising, and no account with us. Your files go directly between your computer and your cloud. No server of ours is between them.</p></div>
+      <div class="card"><h3>Light</h3><p>A small, native app, written in Rust. It does not include a web browser, so it starts quickly and uses little memory.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <p class="lead">DriveCraft keeps real copies of your cloud files in a folder on your computer, and syncs them in both directions.</p>
     <div class="grid">
       <div class="card"><h3>Many clouds, many accounts</h3><p>Each account syncs to a folder of its own in ~/DriveCraft, so the accounts never mix.</p></div>
       <div class="card"><h3>Selective sync</h3><p>A switch for each folder: on, it syncs to this computer; off, it stays only online.</p></div>
       <div class="card"><h3>Real files</h3><p>Your files are real copies on your disk, not placeholders. They open without a connection.</p></div>
       <div class="card"><h3>You choose first</h3><p>After a sign-in, nothing downloads until you select the folders and start the first sync.</p></div>
       <div class="card"><h3>Safe by design</h3><p>A missing folder stops the sync, so it cannot delete your files online. A file that changed on both sides keeps both versions.</p></div>
-      <div class="card"><h3>Free and open source</h3><p>Use DriveCraft at no cost, under the MIT or Apache 2.0 license. Read the code, report problems, or send improvements on GitHub.</p></div>
+      <div class="card"><h3>A simple change</h3><p>Unlink the official app, sign in to DriveCraft, and select your folders. DriveCraft downloads your files from the cloud.</p></div>
     </div>
   </section>
 
@@ -174,12 +184,12 @@
   </section>
 
   <section>
-    <h2>Built on rclone, written in Rust</h2>
-    <p class="lead">DriveCraft does not write a new sync engine. It puts a simple app on top of a tool that people already trust.</p>
-    <div class="grid two">
+    <h2>Built on rclone</h2>
+    <p class="lead">DriveCraft does not write a new sync engine. It puts a simple app on top of rclone, a tool that people trust with their files.</p>
+    <div class="grid">
       <div class="card">
-        <h3>rclone does the sync</h3>
-        <p><a href="https://rclone.org">rclone</a> is an open source tool for more than 70 cloud storage services. Many people use it every day to move and sync their files. DriveCraft uses its two-way sync and its sign-in for each cloud.</p>
+        <h3>Tested for more than ten years</h3>
+        <p><a href="https://rclone.org">rclone</a> is an open source tool for more than 70 cloud storage services. Many people and companies use it every day to move, sync, and back up their files.</p>
       </div>
       <div class="card">
         <h3>rclone is included</h3>
@@ -187,11 +197,7 @@
       </div>
       <div class="card">
         <h3>One Rust code base</h3>
-        <p>DriveCraft is written in Rust. The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors.</p>
-      </div>
-      <div class="card">
-        <h3>A small, native app</h3>
-        <p>The window uses egui, a fast user interface library for Rust. The app does not include a web browser, so it starts quickly and uses little memory.</p>
+        <p>The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors. The window uses egui, a fast user interface library for Rust.</p>
       </div>
     </div>
   </section>
@@ -215,7 +221,7 @@ brew install --cask drivecraft</code></pre>
         <p>Download the tar.gz file for x64 or Arm from the <a href="https://github.com/fballiano/drivecraft/releases/latest">latest release</a>. Extract it, and start drivecraft.</p>
       </div>
     </div>
-    <p class="note">Do you use the official app of your cloud? Read <a href="https://github.com/fballiano/drivecraft#change-from-the-official-app">Change from the official app</a> before you start.</p>
+    <p class="note">Do you use the official app of your cloud now? Read <a href="https://github.com/fballiano/drivecraft#change-from-the-official-app">Change from the official app</a> before you start.</p>
   </section>
 </main>
 

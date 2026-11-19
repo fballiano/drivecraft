@@ -6,7 +6,7 @@
 pkgname=drivecraft-bin
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="Open source client for OneDrive, Dropbox, Box, and more, built on rclone"
+pkgdesc="Light, private, open source replacement for the apps of OneDrive, Dropbox, Box, and more"
 arch=('x86_64' 'aarch64')
 url="https://drivecraft.fabrizioballiano.com/"
 # DriveCraft: MIT or Apache-2.0. Included: rclone (MIT), Inter (OFL-1.1),

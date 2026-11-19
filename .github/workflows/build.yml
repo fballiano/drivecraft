@@ -339,7 +339,7 @@ jobs:
 
             url "https://github.com/fballiano/drivecraft/releases/download/v#{version}/DriveCraft-#{version}-macos-#{arch}.zip"
             name "DriveCraft"
-            desc "Open source client for OneDrive, Dropbox, Box, and more"
+            desc "Open source replacement for the OneDrive, Dropbox, and Box apps"
             homepage "https://github.com/fballiano/drivecraft"
 
             depends_on :macos

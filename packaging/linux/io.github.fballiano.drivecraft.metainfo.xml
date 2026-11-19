@@ -11,6 +11,10 @@
   </developer>
   <description>
     <p>
+      Replace the official apps of OneDrive, Dropbox, Box, and more with one light, private, open source app.
+      DriveCraft sends no telemetry, and puts no server of its own between your computer and your cloud.
+    </p>
+    <p>
       DriveCraft keeps real copies of your cloud files in a folder on your computer, and syncs them in both directions.
       You select the folders that sync. The other folders stay only online.
     </p>
@@ -32,7 +36,10 @@
       <li>A missing folder stops the sync, so it cannot delete your files online.</li>
       <li>A file that changed on both sides keeps both versions.</li>
     </ul>
-    <p>DriveCraft uses rclone for the sync, and includes it. You sign in on the website of your cloud, in your browser.</p>
+    <p>
+      For the sync, DriveCraft uses rclone, a tool that people trust with their files for more than ten years.
+      DriveCraft includes rclone. You sign in on the website of your cloud, in your browser.
+    </p>
   </description>
   <launchable type="desktop-id">io.github.fballiano.drivecraft.desktop</launchable>
   <screenshots>

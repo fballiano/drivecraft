@@ -1,7 +1,7 @@
 <div align="center">
 <img src="docs/icon.png" width="128" alt="DriveCraft" />
 <h1>DriveCraft</h1>
-<p><strong>An open source client for OneDrive, Dropbox, Box, and more, built on rclone.</strong></p>
+<p><strong>A light, private, open source replacement for the apps of OneDrive, Dropbox, Box, and more. Built on rclone.</strong></p>
 <p>
 <a href="https://github.com/fballiano/drivecraft/releases/latest"><img src="https://img.shields.io/github/v/release/fballiano/drivecraft?style=for-the-badge&color=6C5CE7&labelColor=1B1F23" alt="Latest release" /></a>
 <a href="https://github.com/fballiano/drivecraft/releases"><img src="https://img.shields.io/github/downloads/fballiano/drivecraft/total?style=for-the-badge&color=6C5CE7&labelColor=1B1F23" alt="Downloads" /></a>
@@ -20,19 +20,30 @@
 
 ---
 
+Replace the official apps of OneDrive, Dropbox, Box, and more with one light,
+private, open source app. Large companies make the official apps, and you
+cannot see their code. DriveCraft is open source, sends no telemetry, and
+puts no server of its own between your computer and your cloud.
+
 DriveCraft keeps real copies of your cloud files in a folder on your computer,
 and syncs them in both directions. You select the folders that sync; the
 other folders stay only online. It works with OneDrive, Dropbox, Box, pCloud,
 kDrive, HiDrive, and Yandex Disk, and with more than one account at a time.
 
-DriveCraft runs on macOS, Windows, and Linux. It uses
-[rclone](https://rclone.org) to connect to the cloud, and it includes rclone,
-so you install nothing else.
+DriveCraft runs on macOS, Windows, and Linux. For the sync, it uses
+[rclone](https://rclone.org), a tool that people trust with their files for
+more than ten years. DriveCraft includes rclone, so you install nothing else.
 
 <p align="center"><img src="docs/demo.gif" width="800" alt="DriveCraft adds a Work account: you select its folders, start the sync, and see each file while it downloads" /></p>
 
 ## Highlights
 
+- **Open source.** Anyone can read the code and examine what the app does.
+  Use it at no cost, under the MIT or Apache 2.0 license.
+- **Private.** No telemetry, no advertising, and no account with us. Your
+  files go directly between your computer and your cloud.
+- **Light.** A small, native app, written in Rust. It does not include a web
+  browser, so it starts quickly and uses little memory.
 - **Many clouds, many accounts.** Each account syncs to a folder of its own
   in `~/DriveCraft`, so the accounts never mix.
 - **Selective sync.** A switch for each folder: on, it syncs to this
@@ -47,14 +58,13 @@ so you install nothing else.
 - **In the tray.** DriveCraft runs in the menu bar or the system tray, like
   the official apps.
 
-## Built on rclone, written in Rust
+## Built on rclone
 
-DriveCraft does not write a new sync engine. It puts a simple app on top of a tool that people already trust.
+DriveCraft does not write a new sync engine. It puts a simple app on top of rclone, a tool that people trust with their files.
 
-- **rclone does the sync.** [rclone](https://rclone.org) is an open source tool for more than 70 cloud storage services. Many people use it every day to move and sync their files. DriveCraft uses its two-way sync and its sign-in for each cloud.
+- **Tested for more than ten years.** [rclone](https://rclone.org) is an open source tool for more than 70 cloud storage services. Many people and companies use it every day to move, sync, and back up their files. DriveCraft uses its two-way sync and its sign-in for each cloud.
 - **rclone is included.** Each package contains a tested version of rclone. DriveCraft uses its own rclone configuration, so it never changes your own rclone accounts.
-- **One Rust code base.** The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors.
-- **A small, native app.** The window uses [egui](https://github.com/emilk/egui), a fast user interface library for Rust. The app does not include a web browser, so it starts quickly and uses little memory.
+- **One Rust code base.** The same code makes the app for macOS, Windows, and Linux, on x64 and Arm processors. The window uses [egui](https://github.com/emilk/egui), a fast user interface library for Rust.
 
 ## Install
 

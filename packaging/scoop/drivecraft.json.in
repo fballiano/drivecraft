@@ -1,6 +1,6 @@
 {
     "version": "@VERSION@",
-    "description": "Open source client for OneDrive, Dropbox, Box, and more, built on rclone.",
+    "description": "Light, private, open source replacement for the apps of OneDrive, Dropbox, Box, and more. Built on rclone.",
     "homepage": "https://drivecraft.fabrizioballiano.com/",
     "license": "MIT|Apache-2.0",
     "notes": "DriveCraft syncs to %USERPROFILE%\\DriveCraft. Its settings are in %APPDATA%\\drivecraft.",

@@ -21,7 +21,7 @@ magick "$tmp/bg.png" \
   \( docs/icon.png -resize 104x104 \) -geometry +68+146 -composite \
   -font "$fonts/Inter-SemiBold.ttf" -fill '#ECECF0' -pointsize 68 -annotate +70+330 'DriveCraft' \
   -font "$fonts/Inter-Regular.ttf" -fill '#A0A0AA' -pointsize 26 \
-  -annotate +72+385 'An open source client for' -annotate +72+421 'OneDrive, Dropbox, Box, and more.' \
+  -annotate +72+385 'Light, private, open source.' -annotate +72+421 'Replaces the official cloud apps.' \
   -font "$fonts/Inter-Medium.ttf" -fill '#D6D0FF' -pointsize 22 -annotate +72+490 'macOS  ·  Windows  ·  Linux' \
   "$tmp/shot-shadow.png" -geometry +590+40 -composite \
   -depth 8 docs/social-preview.png
