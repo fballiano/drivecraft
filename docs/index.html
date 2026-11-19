@@ -100,8 +100,8 @@
   }
   footer { padding: 56px 0 48px; color: var(--faint); font-size: 14px; text-align: center; }
   footer a { color: var(--dim); }
-  .footer-github { display: inline-flex; align-items: center; gap: 6px; }
-  .footer-github svg { width: 16px; height: 16px; }
+  /* Inline, so the text stays on the baseline of the other links. */
+  .footer-github svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
   @media (max-width: 600px) {
     .wrap { padding: 0 16px; }
     header.hero { padding-top: 48px; }
