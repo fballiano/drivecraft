@@ -1,3 +1,5 @@
 /target
 HANDOFF.md
 /dist
+/packaging/flatpak/cargo-sources.json
+/.flatpak-builder

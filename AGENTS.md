@@ -38,7 +38,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - DriveCraft uses its own `rclone.conf` in the settings folder (`--config` on every rclone call), never the user's default rclone file.
 - A resync never deletes, so only a resync may create the local folder.
 - Junk files (`.DS_Store` and others in `snapshot::JUNK`) are excluded from sync.
-- **Sign out with "Move the folder to the Trash"** runs a last sync first (`Engine::removing`); only a successful sync lets `remove_account` trash the folder, after `check_local_dir` again. Never trash the folder of an account that never synced unless it is empty. Use the `trash` crate with `NsFileManager` on macOS (the Finder method asks for an Automation permission).
+- **Sign out with "Move the folder to the Trash"** runs a last sync first (`Engine::removing`); only a successful sync lets `remove_account` trash the folder, after `check_local_dir` again. Never trash the folder of an account that never synced unless it is empty. Use the `trash` crate with `NsFileManager` on macOS (the Finder method asks for an Automation permission). In a Flatpak, use `flatpak::trash` (`gio trash`, through the Trash portal): the crate would move the folder into the hidden Trash of the sandbox.
 - Before you delete or overwrite anything on the user's machine, verify it: compare with OneDrive by hash (`rclone check`), and prefer `/usr/bin/trash` to `rm`.
 
 ## Gotchas
@@ -55,6 +55,8 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - **egui 0.37:** `App` has `logic` (also runs while the window is hidden, so tray events go there) and `ui`; panels are `egui::Panel::left/bottom`.
 - **Icons in text:** Inter has glyphs at the Lucide code points. Build mixed icon-and-text strings with `widgets::mixed`, never with plain `RichText`.
 - **jiff 1.0** renamed `Zoned` to `ZonedDateTime`.
+- **Flatpak:** the sandbox points `XDG_CONFIG_HOME` and `XDG_DATA_HOME` into `~/.var/app/io.github.fballiano.drivecraft`. The settings can stay there. To read the configuration of other cloud clients, use `flatpak::host_config_dir`, not `dirs::config_dir`.
+- **App ID:** `io.github.fballiano.drivecraft` everywhere: the macOS bundle, the Wayland app ID (`with_app_id`), the desktop file, the AppStream metadata, the icons, and the Flatpak.
 
 ## Verify UI changes
 
@@ -75,6 +77,13 @@ The egui_kittest accessibility check fails on unnamed controls. Name them (`labe
 - `.github/workflows/build.yml` lints and tests on three platforms, then packages six targets with `scripts/package.sh`. A `v*` tag publishes a release and writes `Casks/drivecraft.rb` in `fballiano/homebrew-tap` (secret `TAP_DEPLOY_KEY`, a write deploy key of the tap). Check a cask change with `brew style`.
 - The macOS bundle puts rclone in `Contents/MacOS`, next to the main executable (Apple does not allow code in `Resources`), and has `LSUIElement`. For a tag or a manual run, the workflow signs it with the Developer ID of team H95XQBELRP and notarizes it (`scripts/notarize.sh`). The secrets are the same as in Shellyard; `~/Projects/shellyard/Scripts/setup-signing.sh fballiano/drivecraft` sets them. Update `crates/app/assets/DriveCraft.icns` with the `app_icon_set` test in `art.rs` when the app icon changes.
 - Each package includes `LICENSE-MIT`, `LICENSE-APACHE`, `ATTRIBUTION.md`, and the rclone, Inter, and Lucide licenses.
+- `packaging/` holds the files of the other channels. The Linux `tar.gz` includes `share/` (desktop file, AppStream metadata, icons from `packaging/linux`).
+  - **Windows installer:** `packaging/windows/drivecraft.iss` (Inno Setup, per user, no administrator rights). The `windows-installer` job makes `*-setup.exe` from the zip files. winget uses it.
+  - **Scoop:** the release job writes `bucket/drivecraft.json` in `fballiano/scoop-bucket` from `packaging/scoop/drivecraft.json.in` (secret `SCOOP_DEPLOY_KEY`).
+  - **AUR:** `drivecraft-bin`, from `packaging/aur/PKGBUILD.in` and `scripts/aur.sh`. The `aur-check` job builds it with each Linux package; the release job pushes it (secret `AUR_SSH_PRIVATE_KEY`).
+  - **winget:** `FabrizioBalliano.DriveCraft`. `scripts/winget.sh <version>` writes the manifests for a manual submission; later releases use winget-releaser (secret `WINGET_TOKEN`).
+  - **Flathub:** `packaging/flatpak/io.github.fballiano.drivecraft.yml`. The `flatpak` job makes a test build. For a release, `scripts/flatpak.sh flathub <tag>` writes the manifest and `cargo-sources.json` for the Flathub repository.
+- At each release, add a `<release>` element to `packaging/linux/io.github.fballiano.drivecraft.metainfo.xml`. Flathub requires it.
 
 ## Writing
 

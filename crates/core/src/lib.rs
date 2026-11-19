@@ -2,6 +2,7 @@
 //! It has no UI code, so other front ends can use it too.
 
 pub mod engine;
+pub mod flatpak;
 pub mod other_clients;
 pub mod providers;
 pub mod rclone;

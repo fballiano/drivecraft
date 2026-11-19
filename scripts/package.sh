@@ -7,7 +7,8 @@
 # The result goes to dist/:
 #   macOS:   DriveCraft-<version>-<name>.zip (DriveCraft.app)
 #   Windows: DriveCraft-<version>-<name>.zip
-#   Linux:   DriveCraft-<version>-<name>.tar.gz
+#   Linux:   DriveCraft-<version>-<name>.tar.gz (with share/ for the
+#            desktop file, the AppStream metadata, and the icons)
 #
 # macOS signature: with MACOS_SIGN_IDENTITY (a certificate SHA-1 hash or
 # name) and optional MACOS_KEYCHAIN, the app gets a Developer ID signature
@@ -112,6 +113,12 @@ EOF
     cp "$bin" "$dir/drivecraft"
     cp "$rclone" "$dir/rclone"
     copy_licenses "$dir/licenses"
+    # The desktop file, the AppStream metadata, and the icons, in the
+    # layout of /usr/share. The AUR package and the Flatpak use them.
+    mkdir -p "$dir/share/applications" "$dir/share/metainfo"
+    cp packaging/linux/io.github.fballiano.drivecraft.desktop "$dir/share/applications/"
+    cp packaging/linux/io.github.fballiano.drivecraft.metainfo.xml "$dir/share/metainfo/"
+    cp -R packaging/linux/icons "$dir/share/icons"
     tar -C "$stage" -czf "dist/$package.tar.gz" DriveCraft
     ;;
 *)

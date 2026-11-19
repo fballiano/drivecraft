@@ -20,7 +20,7 @@ pub fn folders(home: &Path) -> Vec<PathBuf> {
     #[cfg(windows)]
     out.extend(windows_app_folders());
     #[cfg(target_os = "linux")]
-    if let Some(dir) = dirs::config_dir() {
+    if let Some(dir) = crate::flatpak::host_config_dir(home) {
         out.extend(abraunegg_folder(&dir.join("onedrive"), home));
     }
     for info in dropbox_info_files(home) {

@@ -1,0 +1,38 @@
+# Maintainer: Fabrizio Balliano <https://github.com/fballiano>
+#
+# The release workflow of fballiano/drivecraft writes this file from
+# packaging/aur/PKGBUILD.in and pushes it to the AUR.
+
+pkgname=drivecraft-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Open source client for OneDrive, Dropbox, Box, and more, built on rclone"
+arch=('x86_64' 'aarch64')
+url="https://drivecraft.fabrizioballiano.com/"
+# DriveCraft: MIT or Apache-2.0. Included: rclone (MIT), Inter (OFL-1.1),
+# Lucide icons (ISC).
+license=('MIT OR Apache-2.0' 'MIT' 'OFL-1.1' 'ISC')
+depends=('gcc-libs' 'glibc' 'hicolor-icon-theme' 'libglvnd' 'libxkbcommon' 'xdg-utils')
+optdepends=('xdg-desktop-portal: the dialog to select a folder')
+provides=('drivecraft')
+conflicts=('drivecraft')
+# The binaries come from the release, already stripped.
+options=('!strip' '!debug')
+source_x86_64=("https://github.com/fballiano/drivecraft/releases/download/v$pkgver/DriveCraft-$pkgver-linux-x64.tar.gz")
+source_aarch64=("https://github.com/fballiano/drivecraft/releases/download/v$pkgver/DriveCraft-$pkgver-linux-arm64.tar.gz")
+sha256sums_x86_64=('@SHA256_X64@')
+sha256sums_aarch64=('@SHA256_ARM64@')
+
+package() {
+  cd DriveCraft
+  # DriveCraft looks for rclone next to its own binary, so both go to
+  # /usr/lib/drivecraft. The bundled rclone is the version that DriveCraft
+  # tests; DriveCraft never uses the rclone of the system.
+  install -Dm755 drivecraft "$pkgdir/usr/lib/drivecraft/drivecraft"
+  install -Dm755 rclone "$pkgdir/usr/lib/drivecraft/rclone"
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/lib/drivecraft/drivecraft "$pkgdir/usr/bin/drivecraft"
+  install -d "$pkgdir/usr/share"
+  cp -r share/. "$pkgdir/usr/share/"
+  install -Dm644 licenses/* -t "$pkgdir/usr/share/licenses/$pkgname"
+}

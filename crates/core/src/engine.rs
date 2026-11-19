@@ -1386,6 +1386,9 @@ impl Engine {
 
 /// Moves a file or folder to the Trash (the Recycle Bin on Windows).
 fn move_to_trash(path: &Path) -> Result<()> {
+    if cfg!(target_os = "linux") && crate::flatpak::is_sandboxed() {
+        return crate::flatpak::trash(path);
+    }
     #[allow(unused_mut)]
     let mut ctx = trash::TrashContext::default();
     // The default asks Finder through AppleScript, and macOS then asks the

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- At each release, add a <release> element with the version and the date. -->
+<component type="desktop-application">
+  <id>io.github.fballiano.drivecraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>DriveCraft</name>
+  <summary>Sync your cloud files with a folder</summary>
+  <developer id="io.github.fballiano">
+    <name>Fabrizio Balliano</name>
+  </developer>
+  <description>
+    <p>
+      DriveCraft keeps real copies of your cloud files in a folder on your computer, and syncs them in both directions.
+      You select the folders that sync. The other folders stay only online.
+    </p>
+    <p>It works with these clouds:</p>
+    <ul>
+      <li>OneDrive</li>
+      <li>Dropbox</li>
+      <li>Box</li>
+      <li>pCloud</li>
+      <li>kDrive</li>
+      <li>HiDrive</li>
+      <li>Yandex Disk</li>
+    </ul>
+    <p>Highlights:</p>
+    <ul>
+      <li>More than one account at a time. Each account syncs to a folder of its own in ~/DriveCraft.</li>
+      <li>A switch for each folder: on, it syncs to this computer; off, it stays only online.</li>
+      <li>After a sign-in, nothing downloads until you select the folders and start the first sync.</li>
+      <li>A missing folder stops the sync, so it cannot delete your files online.</li>
+      <li>A file that changed on both sides keeps both versions.</li>
+    </ul>
+    <p>DriveCraft uses rclone for the sync, and includes it. You sign in on the website of your cloud, in your browser.</p>
+  </description>
+  <launchable type="desktop-id">io.github.fballiano.drivecraft.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The accounts and their status</caption>
+      <image>https://drivecraft.fabrizioballiano.com/screenshots/overview.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Select the folders that sync to this computer</caption>
+      <image>https://drivecraft.fabrizioballiano.com/screenshots/account-folders.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Each file that a sync changed</caption>
+      <image>https://drivecraft.fabrizioballiano.com/screenshots/activity.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://drivecraft.fabrizioballiano.com/</url>
+  <url type="bugtracker">https://github.com/fballiano/drivecraft/issues</url>
+  <url type="vcs-browser">https://github.com/fballiano/drivecraft</url>
+  <url type="donation">https://github.com/sponsors/fballiano</url>
+  <content_rating type="oars-1.1"/>
+  <branding>
+    <color type="primary" scheme_preference="light">#c9c2f7</color>
+    <color type="primary" scheme_preference="dark">#3a3270</color>
+  </branding>
+  <provides>
+    <binary>drivecraft</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.1" date="2026-11-19">
+      <description>
+        <p>A click on the tray icon hides the window when the window is in front.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-11-19">
+      <description>
+        <p>The first release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

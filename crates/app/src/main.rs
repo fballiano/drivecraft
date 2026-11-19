@@ -28,6 +28,8 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("DriveCraft")
+            // On Linux, the desktop file and the icon have this name.
+            .with_app_id("io.github.fballiano.drivecraft")
             .with_inner_size([980.0, 660.0])
             .with_min_inner_size([780.0, 540.0])
             .with_icon(Arc::new(egui::IconData {

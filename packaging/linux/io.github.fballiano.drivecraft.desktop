@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DriveCraft
+GenericName=Cloud Sync
+Comment=Sync the files of OneDrive, Dropbox, Box, and more with a folder
+Exec=drivecraft
+Icon=io.github.fballiano.drivecraft
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=OneDrive;Dropbox;Box;pCloud;kDrive;HiDrive;Yandex;cloud;sync;rclone;
+StartupNotify=true
+StartupWMClass=io.github.fballiano.drivecraft
