@@ -1,6 +1,6 @@
 //! The tray icon (the menu bar icon on macOS).
 //!
-//! - A left click opens the DriveCraft window.
+//! - A left click opens the DriveCraft window, or hides it when it is in front.
 //! - A right click shows a menu: status, Sync now, Open DriveCraft folder, Quit.
 //!
 //! The tray works on macOS and Windows. On Linux, tray-icon needs a GTK
@@ -14,6 +14,8 @@ use eframe::egui;
 #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayAction {
+    /// The left click: show the window, or hide it when it is in front.
+    Toggle,
     Open,
     SyncNow,
     OpenDrive,
@@ -98,7 +100,7 @@ mod imp {
                 ..
             } = event
             {
-                let _ = tx1.send(TrayAction::Open);
+                let _ = tx1.send(TrayAction::Toggle);
                 ctx1.request_repaint();
             }
         }));

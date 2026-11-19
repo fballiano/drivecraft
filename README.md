@@ -98,7 +98,7 @@ Download the package for your computer (x64 or Arm) from the
 
 - DriveCraft runs in the tray (the menu bar on macOS), like OneDrive.
 - On macOS, DriveCraft has a Dock icon only while its window is open. Then the window is in Command-Tab and has a menu bar. When you close the window, the Dock icon goes away.
-- Click the tray icon to open the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
+- Click the tray icon to open the window. Click it again to hide the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
 - The sidebar has three pages for all accounts: **Overview**, **Activity**, and **Settings**. Under them, **Accounts** shows each account with its status and its storage use, and **Add account**.
 - The page of an account has two tabs. **Folders** selects the folders that sync. **Account** shows the storage use, the local folder, **Full resync**, and **Sign out**.

@@ -167,6 +167,11 @@ struct App {
     /// True while the window is on screen. On macOS, DriveCraft has a Dock
     /// icon only then. `dock_icon` is the state that macOS has now.
     window_visible: bool,
+    /// True while the window has the focus, and the moment it lost it.
+    /// A click on the tray icon can take the focus first, so the toggle
+    /// looks a moment back.
+    window_focused: bool,
+    focus_lost: Option<std::time::Instant>,
     dock_icon: Option<bool>,
     app_icon: Option<egui::TextureHandle>,
 
@@ -241,6 +246,8 @@ impl App {
             tray_rx,
             quitting: false,
             window_visible: true,
+            window_focused: false,
+            focus_lost: None,
             dock_icon: None,
             app_icon: None,
             page: Page::Overview,
@@ -517,10 +524,34 @@ impl App {
         ctx.send_viewport_cmd(ViewportCommand::Focus);
     }
 
+    /// Hides the window. DriveCraft continues in the tray.
+    fn hide_window(&mut self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        self.window_visible = false;
+    }
+
+    /// True when the window is on screen and in front.
+    fn window_in_front(&self, ctx: &egui::Context) -> bool {
+        let minimized = ctx.input(|i| i.viewport().minimized).unwrap_or(false);
+        self.window_visible
+            && !minimized
+            && (self.window_focused
+                || self
+                    .focus_lost
+                    .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(1)))
+    }
+
     fn handle_tray(&mut self, ctx: &egui::Context) {
+        // A change of focus repaints, so this sees each change at once.
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
+        if self.window_focused && !focused {
+            self.focus_lost = Some(std::time::Instant::now());
+        }
+        self.window_focused = focused;
         while let Ok(action) = self.tray_rx.try_recv() {
             match action {
-                TrayAction::Open => self.show_window(ctx),
+                TrayAction::Toggle if self.window_in_front(ctx) => self.hide_window(ctx),
+                TrayAction::Toggle | TrayAction::Open => self.show_window(ctx),
                 TrayAction::SyncNow => self.engine.send(Command::SyncNow),
                 TrayAction::OpenDrive => {
                     if let Some(dir) = self.drive_folder() {
@@ -538,8 +569,7 @@ impl App {
         // Closing the window hides it. DriveCraft continues in the tray.
         if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() && !self.quitting {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-            self.window_visible = false;
+            self.hide_window(ctx);
         }
         if self.dock_icon != Some(self.window_visible) {
             set_dock_icon(self.window_visible);
