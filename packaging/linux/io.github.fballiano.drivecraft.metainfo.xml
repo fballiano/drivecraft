@@ -78,6 +78,14 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.10.0" date="2026-11-19">
+      <description>
+        <ul>
+          <li>Check for updates: when you installed DriveCraft from a download, it asks GitHub once a day for a new version, and Overview shows a Download button. It sends no data about you. Homebrew, Scoop, Flatpak, and the AUR update DriveCraft themselves.</li>
+          <li>Settings has a switch to turn off the check.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-11-19">
       <description>
         <ul>
