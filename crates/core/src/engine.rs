@@ -272,6 +272,9 @@ struct Runtime {
     last_ok: bool,
     /// The new local folders that the UI shows. See `check_local_folders`.
     new_folders: Option<Vec<String>>,
+    /// True after DriveCraft released a stale bisync lock, until a sync
+    /// succeeds. It releases a lock only once in a row.
+    lock_released: bool,
 }
 
 impl Runtime {
@@ -281,6 +284,7 @@ impl Runtime {
             last_sync: None,
             last_ok: true,
             new_folders: None,
+            lock_released: false,
         }
     }
 }
@@ -1314,6 +1318,50 @@ impl Engine {
         self.restart_rclone = true;
     }
 
+    /// bisync refuses to start when an earlier run left its lock file, for
+    /// example after a crash or a quit during a sync. Only one DriveCraft
+    /// runs, and it runs one sync at a time, so the lock is stale unless its
+    /// process still runs. DriveCraft writes an expired time into the lock:
+    /// then bisync recovers with its own rules (`recover`). Returns true
+    /// when the sync can start again.
+    fn release_stale_lock(&mut self, id: &str, error: &str) -> bool {
+        let Some(lock) = stale_lock_path(error) else {
+            return false;
+        };
+        let Some(runtime) = self.runtimes.get_mut(id) else {
+            return false;
+        };
+        if runtime.lock_released {
+            return false;
+        }
+        let Ok(text) = fs::read_to_string(&lock) else {
+            return false;
+        };
+        let pid = serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|v| v["PID"].as_str().and_then(|p| p.parse::<u32>().ok()));
+        if pid.is_some_and(|pid| pid != self.rc.pid() && process_runs(pid)) {
+            return false;
+        }
+        let expired = json!({
+            "Session": "",
+            "PID": pid.map(|p| p.to_string()).unwrap_or_default(),
+            "TimeRenewed": "2000-01-01T00:00:00Z",
+            "TimeExpires": "2000-01-01T00:00:00Z",
+        });
+        if fs::write(&lock, expired.to_string()).is_err() {
+            return false;
+        }
+        runtime.lock_released = true;
+        self.log(
+            Some(id),
+            "An earlier sync stopped before its end and left a lock. DriveCraft releases \
+             it and syncs again."
+                .into(),
+        );
+        true
+    }
+
     /// Starts rclone again with the options of the settings. Only call it
     /// while no sync runs.
     fn restart_rclone(&mut self) {
@@ -1540,6 +1588,12 @@ impl Engine {
             "filtersFile": filters,
             "resync": resync,
             "_async": true,
+            // bisync renews its lock file every minute while it runs. After
+            // an interruption (a crash, a quit during a sync), the lock is
+            // expired after 2 minutes, and `recover` continues from the last
+            // good file lists, without a resync.
+            "maxLock": "2m",
+            "recover": true,
         });
         // Without modification times on the provider, bisync cannot find the
         // newer version: this computer is the master (`computer_wins`).
@@ -1632,8 +1686,35 @@ impl Engine {
                 return;
             }
             let err = status["error"].as_str().unwrap_or("unknown error");
+            if self.release_stale_lock(&id, err) {
+                self.start_sync(&id);
+                return;
+            }
+            // After a released lock, bisync recovers from its backup lists.
+            // Without them (an account that synced only once), it asks for
+            // a resync.
+            let released = self.runtimes.get(&id).is_some_and(|r| r.lock_released);
+            if released
+                && err.to_lowercase().contains("must run --resync")
+                && let Some(a) = self.settings.account_mut(&id)
+                && !a.needs_resync
+            {
+                a.needs_resync = true;
+                self.save();
+                self.log(
+                    Some(&id),
+                    "DriveCraft compares all files again (full resync), because the earlier \
+                     sync stopped before its end."
+                        .into(),
+                );
+                self.start_sync(&id);
+                return;
+            }
             self.finish(&id, false, format!("The sync failed: {err}"));
             return;
+        }
+        if let Some(r) = self.runtimes.get_mut(&id) {
+            r.lock_released = false;
         }
         self.report_changes();
         match phase {
@@ -2077,6 +2158,34 @@ fn is_blocked_error(error: &str) -> bool {
     error.contains("malwareDetected") || error.contains("cannotDownloadAbusiveFile")
 }
 
+/// The lock file in a bisync error "prior lock file found: <path>". Only a
+/// `.lck` file in a `bisync` folder.
+fn stale_lock_path(error: &str) -> Option<PathBuf> {
+    let (_, rest) = error.split_once("prior lock file found:")?;
+    let path = PathBuf::from(rest.lines().next()?.trim());
+    let in_bisync = path
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|n| n == "bisync");
+    (path.is_absolute() && in_bisync && path.extension().is_some_and(|e| e == "lck"))
+        .then_some(path)
+}
+
+/// True when the process `pid` runs. On Windows, DriveCraft cannot ask
+/// without a console window, and a lock of an earlier rclone of DriveCraft
+/// is stale anyway (DriveCraft stops its old rclone at each start).
+fn process_runs(pid: u32) -> bool {
+    if cfg!(unix) {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    } else {
+        false
+    }
+}
+
 /// The error of a macOS package in iCloud Drive: the download (an archive)
 /// has a different size than the listed file.
 fn is_package_error(error: &str) -> bool {
@@ -2209,6 +2318,19 @@ mod tests {
             "corrupted on transfer: sizes differ src() 906126 vs dst(Local file system at /x) 493140"
         ));
         assert!(!is_package_error("HTTP error 500"));
+        let error = "prior lock file found: /Users/me/Library/Caches/rclone/bisync/Users_me_DriveCraft_iCloud Drive..iclouddrive_.lck \nTip: this indicates";
+        assert_eq!(
+            stale_lock_path(error),
+            Some(PathBuf::from(
+                "/Users/me/Library/Caches/rclone/bisync/Users_me_DriveCraft_iCloud Drive..iclouddrive_.lck"
+            ))
+        );
+        assert_eq!(
+            stale_lock_path("prior lock file found: /etc/passwd\n"),
+            None
+        );
+        assert_eq!(stale_lock_path("bisync aborted"), None);
+        assert!(process_runs(std::process::id()) || cfg!(windows));
         // The next poll returns the same entries: nothing is new.
         assert_eq!(
             live_transfers(&v, "onedrive:", &mut seen),

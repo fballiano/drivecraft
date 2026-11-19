@@ -267,6 +267,11 @@ impl Rclone {
         self.client.call(method, params)
     }
 
+    /// The process ID of rclone.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     /// The exit status, if rclone stopped by itself. Then every call fails
     /// with "no connection to rclone".
     pub fn exited(&mut self) -> Option<String> {
