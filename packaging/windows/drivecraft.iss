@@ -85,5 +85,7 @@ end;
 function InitializeUninstall(): Boolean;
 begin
   StopDriveCraft(ExpandConstant('{app}'));
+  { The start at login (autostart.rs). }
+  RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'DriveCraft');
   Result := True;
 end;

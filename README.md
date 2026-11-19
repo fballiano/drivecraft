@@ -136,6 +136,11 @@ has no tray icon yet.
 - On macOS, DriveCraft has a Dock icon only while its window is open. Then the window is in Command-Tab and has a menu bar. When you close the window, the Dock icon goes away.
 - Click the tray icon to open the window. Click it again to hide the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
+- DriveCraft starts when you sign in to the computer, after you add the first account. Then it starts in the tray, without its window. On Linux, the window opens. To stop this, turn off **Settings > Sync > Start at login**.
+  - macOS: a login item in `~/Library/LaunchAgents`. System Settings shows it in **General > Login Items**.
+  - Windows: the `Run` key of your user in the registry.
+  - Linux: a file in `~/.config/autostart`. In a Flatpak, the desktop asks for your permission.
+- Only one DriveCraft runs at a time. When you start it again, the running DriveCraft shows its window.
 - The sidebar has three pages for all accounts: **Overview**, **Activity**, and **Settings**. Under them, **Accounts** shows each account with its status and its storage use, and **Add account**.
 - The page of an account has two tabs. **Folders** selects the folders that sync. **Account** shows the storage use, the local folder, **Full resync**, and **Sign out**.
 - The design follows the "Studio" look of the Craft apps: the Inter font, Lucide icons, and the Studio colors. It follows the light or dark mode of the system. You can also select a mode in **Settings**.

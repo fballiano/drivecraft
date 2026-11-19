@@ -15,6 +15,9 @@
         }
     },
     "extract_dir": "DriveCraft",
+    "uninstaller": {
+        "script": "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'DriveCraft' -ErrorAction SilentlyContinue"
+    },
     "shortcuts": [
         [
             "DriveCraft.exe",

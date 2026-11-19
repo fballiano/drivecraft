@@ -18,6 +18,10 @@ pub struct Settings {
     /// Download files that the provider blocks as infected with a virus
     /// (OneDrive `av_override`, Google Drive `acknowledge_abuse`).
     pub download_blocked_files: bool,
+    /// Starts DriveCraft when the user signs in to the computer. The app
+    /// registers itself only while at least one account exists. Settings
+    /// from an older version get the default, true.
+    pub start_at_login: bool,
     /// The accounts, in the order of the sidebar.
     pub accounts: Vec<Account>,
 }
@@ -28,6 +32,7 @@ impl Default for Settings {
             rclone_path: String::new(),
             sync_interval_minutes: 10,
             download_blocked_files: false,
+            start_at_login: true,
             accounts: Vec::new(),
         }
     }
@@ -746,6 +751,14 @@ mod tests {
             !filters_match_last_resync(rules, None),
             "no resync with a filter file yet"
         );
+    }
+
+    #[test]
+    fn start_at_login_is_on_unless_the_file_turns_it_off() {
+        let (old, _) = Settings::parse("sync_interval_minutes = 10\n").unwrap();
+        assert!(old.start_at_login, "settings of an older version");
+        let (off, _) = Settings::parse("start_at_login = false\n").unwrap();
+        assert!(!off.start_at_login);
     }
 
     #[test]

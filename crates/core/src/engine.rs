@@ -83,6 +83,7 @@ pub enum Command {
 pub struct Prefs {
     pub sync_interval_minutes: u64,
     pub download_blocked_files: bool,
+    pub start_at_login: bool,
 }
 
 impl Prefs {
@@ -90,6 +91,7 @@ impl Prefs {
         Prefs {
             sync_interval_minutes: s.sync_interval_minutes,
             download_blocked_files: s.download_blocked_files,
+            start_at_login: s.start_at_login,
         }
     }
 }
@@ -714,6 +716,7 @@ impl Engine {
 
     fn update_prefs(&mut self, p: Prefs) {
         self.settings.sync_interval_minutes = p.sync_interval_minutes.max(1);
+        self.settings.start_at_login = p.start_at_login;
         if self.settings.download_blocked_files != p.download_blocked_files {
             // The filter rules change too, so the next syncs are resyncs.
             // Turned on, they download the blocked files.

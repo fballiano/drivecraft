@@ -5,7 +5,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod art;
+mod autostart;
 mod icons;
+mod instance;
 mod pages;
 mod theme;
 mod tray;
@@ -24,6 +26,20 @@ use eframe::egui::{self, ViewportCommand};
 use crate::tray::{Tray, TrayAction, TrayState};
 
 fn main() -> eframe::Result {
+    let guard = match instance::start(&Settings::dir()) {
+        Ok(instance::Start::First(guard)) => Some(guard),
+        // The running DriveCraft shows its window.
+        Ok(instance::Start::Other) => return Ok(()),
+        Err(e) => {
+            eprintln!("Cannot check for a running DriveCraft: {e}");
+            None
+        }
+    };
+    // After a start at login, DriveCraft waits in the tray. Linux has no tray
+    // icon yet, so there the window opens.
+    let hidden =
+        std::env::args().any(|a| a == autostart::ARG) && cfg!(any(target_os = "macos", windows));
+
     let icon = art::render(art::APP_ICON, 256);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -32,6 +48,7 @@ fn main() -> eframe::Result {
             .with_app_id("io.github.fballiano.drivecraft")
             .with_inner_size([980.0, 660.0])
             .with_min_inner_size([780.0, 540.0])
+            .with_visible(!hidden)
             .with_icon(Arc::new(egui::IconData {
                 rgba: icon.pixels,
                 width: icon.size,
@@ -42,7 +59,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "DriveCraft",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, guard, hidden)))),
     )
 }
 
@@ -208,10 +225,17 @@ struct App {
     sign_out: Option<SignOut>,
     /// A provider that needs a value before the sign-in, and the value.
     add_field: Option<(String, String)>,
+
+    /// The lock of the only running DriveCraft. None in tests.
+    instance: Option<instance::Guard>,
+    /// True in the real app: it registers the start at login. Tests do not.
+    manage_autostart: bool,
+    /// The state of the start at login that this run registered last.
+    autostart_applied: Option<bool>,
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, guard: Option<instance::Guard>, hidden: bool) -> Self {
         theme::install(&cc.egui_ctx);
         let appearance = cc
             .storage
@@ -233,7 +257,17 @@ impl App {
                 None
             }
         };
-        App::from_parts(engine, tray, tray_rx, appearance)
+        // Without a tray icon, a hidden window cannot open again.
+        let hidden = hidden && tray.is_some();
+        if !hidden {
+            cc.egui_ctx
+                .send_viewport_cmd(ViewportCommand::Visible(true));
+        }
+        let mut app = App::from_parts(engine, tray, tray_rx, appearance);
+        app.window_visible = !hidden;
+        app.instance = guard;
+        app.manage_autostart = true;
+        app
     }
 
     fn from_parts(
@@ -271,6 +305,9 @@ impl App {
             form_name: None,
             sign_out: None,
             add_field: None,
+            instance: None,
+            manage_autostart: false,
+            autostart_applied: None,
         }
     }
 
@@ -471,6 +508,28 @@ impl App {
             self.page = Page::Overview;
         }
         self.settings = Some(s);
+        self.apply_autostart();
+    }
+
+    /// Registers or removes the start at login. DriveCraft registers only
+    /// while at least one account exists: without an account, a start at
+    /// login has nothing to sync.
+    fn apply_autostart(&mut self) {
+        let Some(s) = &self.settings else {
+            return;
+        };
+        if !self.manage_autostart || !autostart::supported() {
+            return;
+        }
+        let wanted = s.start_at_login && !s.accounts.is_empty();
+        if self.autostart_applied == Some(wanted) {
+            return;
+        }
+        self.autostart_applied = Some(wanted);
+        if let Err(e) = autostart::set(wanted) {
+            let text = format!("Cannot change the start at login: {e}");
+            self.add_activity(EntryKind::Error, None, text);
+        }
     }
 
     /// The status of one account.
@@ -623,6 +682,13 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_events();
         self.handle_tray(ctx);
+        // A second start of DriveCraft asks this one to show its window.
+        if let Some(guard) = &mut self.instance {
+            if guard.show_requested() {
+                self.show_window(ctx);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

@@ -774,6 +774,33 @@ fn settings(app: &mut App, ui: &mut Ui) {
                     app.engine.send(Command::UpdatePrefs(prefs));
                 }
             });
+            // The screenshot tests show the switch too.
+            if crate::autostart::supported() || cfg!(test) {
+                widgets::separator(ui);
+                setting_row(
+                    ui,
+                    "Start at login",
+                    "DriveCraft starts when you sign in to this computer, so your files stay in sync.",
+                    |ui, _| {
+                        let (rect, _) = ui.allocate_exact_size(vec2(34.0, 20.0), Sense::hover());
+                        let on = s.start_at_login;
+                        if widgets::toggle_at(
+                            ui,
+                            rect,
+                            Id::unique("start-at-login"),
+                            on,
+                            true,
+                            "Start at login",
+                        )
+                        .clicked()
+                        {
+                            let mut prefs = Prefs::from_settings(&s);
+                            prefs.start_at_login = !on;
+                            app.engine.send(Command::UpdatePrefs(prefs));
+                        }
+                    },
+                );
+            }
         });
         ui.add_space(14.0);
 
