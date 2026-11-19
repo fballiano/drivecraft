@@ -76,6 +76,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.5.1" date="2026-11-19">
+      <description>
+        <p>The window uses the GPU with the lower power use. On Windows, it uses DirectX 12, which fixes a crash at the start with some Intel graphics drivers.</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-11-19">
       <description>
         <ul>
