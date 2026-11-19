@@ -22,9 +22,10 @@ name: Build
 #                                  for pull requests to microsoft/winget-pkgs
 #                                  (after the first version is in winget-pkgs)
 #
-# Flathub builds the Flatpak itself. For a new version, run
-# `scripts/flatpak.sh flathub <tag>` and open a pull request in the Flathub
-# repository of io.github.fballiano.drivecraft.
+# Flathub builds the Flatpak itself. For a tag, the flatpak job uploads the
+# artifact flathub-files (from `scripts/flatpak.sh flathub <tag>`). Copy its
+# files into a pull request in the Flathub repository of
+# io.github.fballiano.drivecraft.
 #
 # macOS signature: for a tag and for a manual run (Actions -> Build -> Run
 # workflow), the app gets a Developer ID signature and Apple notarizes it.
@@ -245,6 +246,17 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: List the crates for the offline build
         run: scripts/flatpak.sh sources
+      # For a tag: the manifest and the sources for the Flathub repository.
+      - name: Write the Flathub files
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/flatpak.sh flathub "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flathub-files
+          path: |
+            packaging/flatpak/cargo-sources.json
+            target/flathub/
+          if-no-files-found: error
       - name: Build the Flatpak
         run: |
           flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
