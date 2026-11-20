@@ -819,6 +819,13 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // eframe shows the window after its first frame. On X11, egui draws a
+        // hidden window at the start (it knows no occlusion yet), so the
+        // window would show after a start at login. eframe applies this
+        // command after its own show, in the same frame.
+        if !self.window_visible {
+            ui.ctx().send_viewport_cmd(ViewportCommand::Visible(false));
+        }
         self.draw(ui);
         // The third frame on screen: the first two were drawn without a
         // crash of the driver.

@@ -58,6 +58,7 @@ These protect the user's files on OneDrive. Every change to sync code keeps all 
 - **Cargo build layout:** `OUT_DIR` sits deeper than `target/<profile>/build/<pkg>-<hash>/out`, so the build script passes the rclone path as `DRIVECRAFT_BUILD_RCLONE` and copies nothing next to the binary.
 - **egui 0.37:** `App` has `logic` (also runs while the window is hidden, so tray events go there) and `ui`; panels are `egui::Panel::left/bottom`.
 - **Icons in text:** Inter has glyphs at the Lucide code points. Build mixed icon-and-text strings with `widgets::mixed`, never with plain `RichText`.
+- **eframe shows a hidden window after its first frame.** On X11, egui draws a window that starts hidden (it knows no occlusion yet), so after `--autostart` the window showed. `App::ui` sends `Visible(false)` while `window_visible` is false; eframe applies it after its own show, in the same frame. The tray test checks it.
 - **jiff 1.0** renamed `Zoned` to `ZonedDateTime`.
 - **Flatpak:** the sandbox points `XDG_CONFIG_HOME` and `XDG_DATA_HOME` into `~/.var/app/io.github.fballiano.drivecraft`. The settings can stay there. To read the configuration of other cloud clients, use `flatpak::host_config_dir`, not `dirs::config_dir`.
 - **GPU backend** (`gpu.rs`). A driver crash cannot be caught, so `gpu.txt` in the settings folder records the backend before the window opens; three frames on screen, 5 seconds with a hidden window, or a normal exit confirm it. An unconfirmed backend at the next start means a crash: take the next one (Windows: DirectX 12, Vulkan, OpenGL; Linux: Vulkan, OpenGL; macOS: Metal only). Without a GPU device, `main` starts DriveCraft again. The power preference is low power. `WGPU_BACKEND` and `WGPU_POWER_PREF` override both. Reason: the Vulkan driver of an Intel GPU (igvk64.dll 30.0.101.1404) crashed DriveCraft at the start.
@@ -72,6 +73,14 @@ cargo test -p drivecraft screenshots -- --ignored   # writes target/screenshots/
 ```
 
 The egui_kittest accessibility check fails on unnamed controls. Name them (`labelled_by`, `widget_info`); keep the check on.
+
+After a change to the tray or to the window (show, hide, close, start at login), run the Linux tray test. It needs Docker (OrbStack on this Mac), and writes screenshots and logs to `target/tray-test`:
+
+```
+scripts/tray-test.sh            # Wayland (sway) and X11 (Xvfb, Openbox)
+```
+
+The CI job `tray-test` runs the same test on the Linux x64 package, and a release needs it. sway has no minimized state, so the test cannot check minimize on Wayland.
 
 ## Lint
 

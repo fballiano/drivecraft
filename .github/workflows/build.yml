@@ -317,10 +317,38 @@ jobs:
             echo "The package has all files."
           '
 
+  # The tray icon of the Linux package, in a Wayland session (sway) and in
+  # an X11 session (Xvfb with Openbox). scripts/tray-test/traytest.py uses
+  # the tray item over D-Bus, as a panel does.
+  tray-test:
+    name: Linux tray icon (test)
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: drivecraft-linux-x64
+          path: dist
+      - name: Install the sessions
+        run: |
+          scripts/ci-apt.sh sway grim dbus libglib2.0-bin libxkbcommon-x11-0 \
+            mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri libegl1 \
+            xvfb openbox wmctrl xdotool x11-utils imagemagick python3-gi gir1.2-glib-2.0
+      - name: Test
+        run: |
+          tar -C dist -xzf dist/DriveCraft-*-linux-x64.tar.gz
+          scripts/tray-test/run.sh dist/DriveCraft/drivecraft target/tray-test
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tray-test
+          path: target/tray-test
+
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, build, windows-installer, aur-check]
+    needs: [lint, build, windows-installer, aur-check, tray-test]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

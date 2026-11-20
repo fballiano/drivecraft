@@ -156,6 +156,8 @@ To render each page with demo data to `target/screenshots/`, run:
 cargo test -p drivecraft screenshots -- --ignored
 ```
 
+To test the tray icon on Linux in a Wayland session and in an X11 session, run `scripts/tray-test.sh`. It needs Docker, and writes screenshots and logs to `target/tray-test/`.
+
 To make `docs/demo.webp` again, run `scripts/demo-animation.sh` (it needs ImageMagick). To make the store screenshots in `docs/screenshots` again, run `scripts/store-screenshots.sh` (it needs ImageMagick). To make `docs/social-preview.png` again, run `scripts/social-preview.sh` (it needs ImageMagick).
 
 ## Change from the official app
