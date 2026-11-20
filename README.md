@@ -111,15 +111,15 @@ DriveCraft for your user, without administrator rights, and adds it to the
 Start menu. The zip file has the same app without an installer: extract it,
 and start `DriveCraft.exe`. Keep `rclone.exe` in the same folder.
 
-The app has no signature yet, so Windows can show a warning on the first
-start.
+The app has no signature yet, so on the first start Windows can show
+"Windows protected your PC". Click **More info**, then **Run anyway**. Scoop
+installs give no warning.
 
 ### Linux
 
 Download the `tar.gz` file for your computer (x64 or Arm) from the
 [latest release](https://github.com/fballiano/drivecraft/releases/latest).
-Extract it, and start `drivecraft`. Keep `rclone` in the same folder. Linux
-has no tray icon yet.
+Extract it, and start `drivecraft`. Keep `rclone` in the same folder.
 
 ## Getting started
 
@@ -137,7 +137,7 @@ has no tray icon yet.
 - On macOS, DriveCraft has a Dock icon only while its window is open. Then the window is in Command-Tab and has a menu bar. When you close the window, the Dock icon goes away.
 - Click the tray icon to open the window. Click it again to hide the window. Right-click it for a menu: status, **Sync now**, **Open DriveCraft folder**, and **Quit DriveCraft**.
 - When you close the window, DriveCraft continues to run in the tray. Use **Quit DriveCraft** to stop it.
-- DriveCraft starts when you sign in to the computer, after you add the first account. Then it starts in the tray, without its window. On Linux, the window opens. To stop this, turn off **Settings > Sync > Start at login**.
+- DriveCraft starts when you sign in to the computer, after you add the first account. Then it starts in the tray, without its window. On Linux with Wayland, the window starts minimized. To stop this, turn off **Settings > Sync > Start at login**.
 - When you installed DriveCraft from a download (a zip, an installer, or a `tar.gz`), it asks GitHub once a day for a new version. Then **Overview** shows **Download**, which opens the release page. DriveCraft sends no data about you, and it has no server, so only GitHub sees the request. Homebrew, Scoop, Flatpak, and the AUR update DriveCraft themselves, so these installs do not check. To stop the check, turn off **Settings > Sync > Check for updates**.
   - macOS: a login item in `~/Library/LaunchAgents`. System Settings shows it in **General > Login Items**.
   - Windows: the `Run` key of your user in the registry.
@@ -147,7 +147,8 @@ has no tray icon yet.
 - The page of an account has two tabs. **Folders** selects the folders that sync. **Account** shows the storage use, the local folder, **Full resync**, and **Sign out**.
 - The design follows the "Studio" look of the Craft apps: the Inter font, Lucide icons, and the Studio colors. It follows the light or dark mode of the system. You can also select a mode in **Settings**.
 
-The tray icon works on macOS and Windows. Linux has no tray icon yet. On Linux, closing the window stops DriveCraft.
+On Linux, the tray icon shows on KDE Plasma, Cinnamon, XFCE, MATE, Budgie, LXQt, and Ubuntu. Plain GNOME shows it only with the "AppIndicator and KStatusNotifierItem Support" extension.
+On Wayland, an app cannot hide its window. There, closing the window minimizes it, and DriveCraft continues to sync. A click on the tray icon asks the desktop to show the window: the desktop shows it, or marks it in the taskbar. On X11, the tray works as on macOS and Windows.
 
 To render each page with demo data to `target/screenshots/`, run:
 
@@ -226,6 +227,74 @@ Google Drive for desktop on Windows uses a separate drive letter (for example `G
 DriveCraft does the check when you select a folder, and again before each sync.
 
 When a sync finds a file with different content on the two sides, and there is no earlier sync to compare with, DriveCraft keeps the newer version. This occurs at the first sync, after a change of folders, and after **Full resync**.
+
+## Questions and answers
+
+### Is DriveCraft an app for rclone?
+
+Yes. DriveCraft is an easy app for the two-way sync of rclone, the same on macOS, Windows, and Linux. You do not use the command line, and you do not install rclone: DriveCraft includes it.
+DriveCraft does not write a new sync engine. rclone does the sign-in and the sync; DriveCraft adds the window, the tray icon, the folder selection, and the safety checks.
+
+### Why not use rclone bisync directly?
+
+You can. DriveCraft uses the same rclone. It adds these parts:
+
+- A sign-in for each provider, and a switch for each folder.
+- Checks before each sync. For example, a missing local folder stops the sync, and a change of folders starts a full resync.
+- Safe settings for bisync. A full resync keeps the newer version, and a file that changed on both sides keeps both versions.
+- A tray icon, a sync at an interval, and a list of each file that a sync changed.
+- More accounts, each in a folder of its own. DriveCraft uses its own rclone configuration, so it does not change your rclone accounts.
+
+### Is a two-way sync safe for my files?
+
+A two-way sync also syncs deletes. When you delete a file on this computer, the next sync deletes it online too. DriveCraft has checks against the errors that cause large deletes (see [How it works](#how-it-works)):
+
+- A missing local folder stops the sync.
+- A full resync never deletes files.
+- Before DriveCraft removes the local copy of a folder that you switched off, it uploads the changes in that folder.
+- DriveCraft refuses the folders of other cloud apps.
+
+DriveCraft is a new project. Keep a backup of the files that you cannot lose. Most providers also keep deleted files in an online recycle bin for some days.
+
+### What happens when a file changes on this computer and online?
+
+DriveCraft keeps both versions. The newer version keeps the name. The other version gets a copy with "conflict" in the name, for example `report.conflict1.docx`. MEGA works differently: see [Providers](#providers).
+
+### Does DriveCraft have placeholder files, like Files On-Demand?
+
+No. Each folder that syncs has real copies of the files. A folder that you switch off stays only online. Placeholder files are in phase 3 of the [plan](#plan).
+
+### How fast does a change sync?
+
+DriveCraft syncs each account every 10 minutes by default. To sync immediately, click **Sync now**. A sync when a local file changes is in phase 2 of the [plan](#plan).
+
+### Can DriveCraft see my files or my password?
+
+DriveCraft has no server. Your files go directly between your computer and your cloud.
+For most providers, you sign in in your browser, so DriveCraft never sees your password. For iCloud Drive and MEGA, DriveCraft gives the password to rclone for the sign-in only, and then removes it.
+DriveCraft sends no telemetry. The only request that it makes for itself is the daily check for updates, and you can turn it off.
+
+### Why is there no Google Drive?
+
+See [Google Drive](#google-drive).
+
+### What does DriveCraft cost?
+
+Nothing. DriveCraft is open source, under the MIT or Apache 2.0 license. To support the work, use the sponsor links at the top of this page.
+
+## GenAI transparency
+
+DriveCraft follows the same rules as [Maho](https://mahocommerce.com), the open source ecommerce platform of the same author
+(read the [Maho GenAI transparency statement](https://mahocommerce.com/about/genai-transparency/)).
+
+Generative AI is part of the daily work on DriveCraft. We do not hide it. It lets one person make and maintain an app for three operating systems and nine clouds.
+Our primary tool is Claude Code, with the Claude models of Anthropic. AI helps to write and refactor the code, to write tests, and to write the documentation.
+
+A large amount of human work stays: to define the features and the safety rules, to design the app, to review the code, to test with real accounts, and to answer issues.
+Automated checks control each change: `cargo fmt`, `cargo clippy` with all warnings as errors, and the tests on macOS, Windows, and Linux.
+The rules that protect your files are in [`AGENTS.md`](AGENTS.md), and each change must keep them. The maintainer reviews each change. We never release changes that only an AI made.
+
+AI use in your pull requests is welcome. You do not have to declare it, but you must understand the code that you send and stand behind it.
 
 ## Structure
 

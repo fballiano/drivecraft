@@ -100,6 +100,12 @@
     /* Long commands wrap on screen; a copy still gives one line. */
     white-space: pre-wrap; overflow-wrap: anywhere;
   }
+  details { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0 22px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; padding: 16px 0; }
+  details[open] summary { padding-bottom: 6px; }
+  details p, details ul { margin: 0 0 16px; color: var(--dim); font-size: 15px; }
+  details li { margin-bottom: 4px; }
+  .genai p { color: var(--dim); max-width: 760px; }
   footer { padding: 56px 0 48px; color: var(--faint); font-size: 14px; text-align: center; }
   footer a { color: var(--dim); }
   /* Inline, so the text stays on the baseline of the other links. */
@@ -216,7 +222,7 @@ brew install --cask drivecraft</code></pre>
       </div>
       <div class="card">
         <h3>Windows</h3>
-        <p>With <a href="https://scoop.sh">Scoop</a>, or with the installer for x64 or Arm from the <a href="https://github.com/fballiano/drivecraft/releases/latest">latest release</a>.</p>
+        <p>With <a href="https://scoop.sh">Scoop</a>, or with the installer for x64 or Arm from the <a href="https://github.com/fballiano/drivecraft/releases/latest">latest release</a>. The installer has no signature yet: if Windows shows "Windows protected your PC", click More info, then Run anyway.</p>
         <pre><code>scoop bucket add fballiano https://github.com/fballiano/scoop-bucket
 scoop install fballiano/drivecraft</code></pre>
       </div>
@@ -226,6 +232,67 @@ scoop install fballiano/drivecraft</code></pre>
       </div>
     </div>
     <p class="note">Do you use the official app of your cloud now? Read <a href="https://github.com/fballiano/drivecraft#change-from-the-official-app">Change from the official app</a> before you start.</p>
+  </section>
+  <section id="questions">
+    <h2>Questions and answers</h2>
+    <details>
+      <summary>Is DriveCraft an app for rclone?</summary>
+      <p>Yes. DriveCraft is an easy app for the two-way sync of rclone, the same on macOS, Windows, and Linux. You do not use the command line, and you do not install rclone: DriveCraft includes it.</p>
+      <p>DriveCraft does not write a new sync engine. rclone does the sign-in and the sync; DriveCraft adds the window, the tray icon, the folder selection, and the safety checks.</p>
+    </details>
+    <details>
+      <summary>Why not use rclone bisync directly?</summary>
+      <p>You can. DriveCraft uses the same rclone. It adds these parts:</p>
+      <ul>
+        <li>A sign-in for each provider, and a switch for each folder.</li>
+        <li>Checks before each sync. For example, a missing local folder stops the sync, and a change of folders starts a full resync.</li>
+        <li>Safe settings for bisync. A full resync keeps the newer version, and a file that changed on both sides keeps both versions.</li>
+        <li>A tray icon, a sync at an interval, and a list of each file that a sync changed.</li>
+        <li>More accounts, each in a folder of its own. DriveCraft uses its own rclone configuration, so it does not change your rclone accounts.</li>
+      </ul>
+    </details>
+    <details>
+      <summary>Is a two-way sync safe for my files?</summary>
+      <p>A two-way sync also syncs deletes. When you delete a file on this computer, the next sync deletes it online too. DriveCraft has checks against the errors that cause large deletes:</p>
+      <ul>
+        <li>A missing local folder stops the sync.</li>
+        <li>A full resync never deletes files.</li>
+        <li>Before DriveCraft removes the local copy of a folder that you switched off, it uploads the changes in that folder.</li>
+        <li>DriveCraft refuses the folders of other cloud apps.</li>
+      </ul>
+      <p>DriveCraft is a new project. Keep a backup of the files that you cannot lose. Most providers also keep deleted files in an online recycle bin for some days.</p>
+    </details>
+    <details>
+      <summary>What happens when a file changes on this computer and online?</summary>
+      <p>DriveCraft keeps both versions. The newer version keeps the name. The other version gets a copy with "conflict" in the name, for example <code>report.conflict1.docx</code>. MEGA works differently: read <a href="https://github.com/fballiano/drivecraft#providers">Providers</a>.</p>
+    </details>
+    <details>
+      <summary>Does DriveCraft have placeholder files, like Files On-Demand?</summary>
+      <p>No. Each folder that syncs has real copies of the files. A folder that you switch off stays only online. Placeholder files are in a later phase of the <a href="https://github.com/fballiano/drivecraft#plan">plan</a>.</p>
+    </details>
+    <details>
+      <summary>How fast does a change sync?</summary>
+      <p>DriveCraft syncs each account every 10 minutes by default. To sync immediately, click <strong>Sync now</strong>. A sync when a local file changes is in the next phase of the <a href="https://github.com/fballiano/drivecraft#plan">plan</a>.</p>
+    </details>
+    <details>
+      <summary>Can DriveCraft see my files or my password?</summary>
+      <p>DriveCraft has no server. Your files go directly between your computer and your cloud. For most providers, you sign in in your browser, so DriveCraft never sees your password. For iCloud Drive and MEGA, DriveCraft gives the password to rclone for the sign-in only, and then removes it. DriveCraft sends no telemetry. The only request that it makes for itself is the daily check for updates, and you can turn it off.</p>
+    </details>
+    <details>
+      <summary>Why is there no Google Drive?</summary>
+      <p>rclone's shared Google sign-in stops working during 2026. DriveCraft needs a Google sign-in of its own first. The code for Google Drive is ready.</p>
+    </details>
+    <details>
+      <summary>What does DriveCraft cost?</summary>
+      <p>Nothing. DriveCraft is open source, under the MIT or Apache 2.0 license. To support the work, <a href="https://github.com/sponsors/fballiano">sponsor the project</a>.</p>
+    </details>
+  </section>
+
+  <section id="genai" class="genai">
+    <h2>GenAI transparency</h2>
+    <p>DriveCraft follows the same rules as <a href="https://mahocommerce.com">Maho</a>, the open source ecommerce platform of the same author. Read the <a href="https://mahocommerce.com/about/genai-transparency/">Maho GenAI transparency statement</a>.</p>
+    <p>Generative AI is part of the daily work on DriveCraft. We do not hide it. It lets one person make and maintain an app for three operating systems and nine clouds. Our primary tool is Claude Code, with the Claude models of Anthropic.</p>
+    <p>A large amount of human work stays: to define the features and the safety rules, to design the app, to review the code, to test with real accounts, and to answer issues. Automated checks and tests control each change, and the maintainer reviews each change. We never release changes that only an AI made. <a href="https://github.com/fballiano/drivecraft#genai-transparency">Read more</a>.</p>
   </section>
 </main>
 
