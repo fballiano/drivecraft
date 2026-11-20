@@ -19,6 +19,8 @@ finish-args:
   # the user selects. DriveCraft also reads the configuration of other
   # cloud clients (~/.config/onedrive, ~/.dropbox), to refuse their folders.
   - --filesystem=home
+  # The tray icon (StatusNotifierItem, tray.rs).
+  - --talk-name=org.kde.StatusNotifierWatcher
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
 modules:

@@ -40,10 +40,10 @@ fn main() -> eframe::Result {
     let gpu = gpu::choose(&dir);
     let backends = gpu.as_ref().map(gpu::Probe::backends);
     let start_again = gpu.as_ref().is_some_and(|p| !p.tried_all());
-    // After a start at login, DriveCraft waits in the tray. Linux has no tray
-    // icon yet, so there the window opens.
-    let hidden =
-        std::env::args().any(|a| a == autostart::ARG) && cfg!(any(target_os = "macos", windows));
+    // After a start at login, DriveCraft waits in the tray. On Wayland, winit
+    // cannot hide the window, so there the window starts minimized.
+    let autostart = std::env::args().any(|a| a == autostart::ARG);
+    let hidden = autostart && tray::hides_window();
 
     let icon = art::render(art::APP_ICON, 256);
     let options = eframe::NativeOptions {
@@ -65,7 +65,7 @@ fn main() -> eframe::Result {
     let result = eframe::run_native(
         "DriveCraft",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, show_request, gpu, hidden)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, show_request, gpu, autostart)))),
     );
     // Without a GPU device, eframe returns an error. gpu.txt has no
     // confirmation, so a new start takes the next backend. It needs the lock.
@@ -310,7 +310,7 @@ impl App {
         cc: &eframe::CreationContext<'_>,
         show_request: Option<instance::ShowRequest>,
         gpu: Option<gpu::Probe>,
-        hidden: bool,
+        autostart: bool,
     ) -> Self {
         theme::install(&cc.egui_ctx);
         let appearance = cc
@@ -334,10 +334,14 @@ impl App {
             }
         };
         // Without a tray icon, a hidden window cannot open again.
-        let hidden = hidden && tray.is_some();
+        let hidden = autostart && tray::hides_window() && tray.is_some();
         if !hidden {
             cc.egui_ctx
                 .send_viewport_cmd(ViewportCommand::Visible(true));
+        }
+        if autostart && tray.is_some() && !tray::hides_window() {
+            cc.egui_ctx
+                .send_viewport_cmd(ViewportCommand::Minimized(true));
         }
         let mut app = App::from_parts(engine, tray, tray_rx, appearance);
         app.window_visible = !hidden;
@@ -683,12 +687,25 @@ impl App {
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(ViewportCommand::Focus);
+        // On Wayland, winit cannot unminimize or focus a window. It can ask
+        // the compositor for attention: the compositor shows the window, or
+        // marks it in the taskbar.
+        if !tray::hides_window() {
+            ctx.send_viewport_cmd(ViewportCommand::RequestUserAttention(
+                egui::UserAttentionType::Critical,
+            ));
+        }
     }
 
-    /// Hides the window. DriveCraft continues in the tray.
+    /// Hides the window. DriveCraft continues in the tray. On Wayland, winit
+    /// cannot hide a window, so there the window is minimized.
     fn hide_window(&mut self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-        self.window_visible = false;
+        if tray::hides_window() {
+            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+            self.window_visible = false;
+        } else {
+            ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+        }
     }
 
     /// True when the window is on screen and in front.
@@ -727,7 +744,8 @@ impl App {
             }
         }
 
-        // Closing the window hides it. DriveCraft continues in the tray.
+        // Closing the window hides it (on Wayland, minimizes it). DriveCraft
+        // continues in the tray. Without a tray, closing it stops DriveCraft.
         if ctx.input(|i| i.viewport().close_requested()) && self.tray.is_some() && !self.quitting {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             self.hide_window(ctx);

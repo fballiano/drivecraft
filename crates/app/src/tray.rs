@@ -3,15 +3,21 @@
 //! - A left click opens the DriveCraft window, or hides it when it is in front.
 //! - A right click shows a menu: status, Sync now, Open DriveCraft folder, Quit.
 //!
-//! The tray works on macOS and Windows. On Linux, tray-icon needs a GTK
-//! event loop on its own thread; that is not done yet, so Linux has no tray.
+//! macOS and Windows use the `tray-icon` crate. Linux uses `ksni`: a
+//! StatusNotifierItem on D-Bus, without GTK. KDE Plasma, Cinnamon, XFCE,
+//! MATE, Budgie, LXQt, and Ubuntu show it. Plain GNOME shows it only with
+//! the AppIndicator extension. Without a tray, `create` returns an error,
+//! and DriveCraft works without a tray.
 
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
 
-// On Linux, nothing sends these actions yet, because there is no tray.
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+// On other systems, nothing sends these actions, because there is no tray.
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "windows", target_os = "linux")),
+    allow(dead_code)
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayAction {
     /// The left click: show the window, or hide it when it is in front.
@@ -30,6 +36,34 @@ pub enum TrayState {
     Idle,
 }
 
+/// True when DriveCraft can hide its window and show it again from the
+/// tray. On Linux, winit cannot hide a window on Wayland, so there the
+/// window stays open, and closing it stops DriveCraft.
+pub fn hides_window() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // winit selects Wayland when one of these variables has a value.
+        let set = |name| std::env::var_os(name).is_some_and(|v| !v.is_empty());
+        !set("WAYLAND_DISPLAY") && !set("WAYLAND_SOCKET")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+/// The Lucide icon for a state.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn svg_for(state: TrayState) -> &'static str {
+    use crate::art;
+    match state {
+        TrayState::UpToDate => art::TRAY_DONE,
+        TrayState::Syncing => art::TRAY_SYNCING,
+        TrayState::Error => art::TRAY_ERROR,
+        TrayState::Idle => art::TRAY_IDLE,
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod imp {
     use super::*;
@@ -46,12 +80,7 @@ mod imp {
     }
 
     fn icon_for(state: TrayState) -> Icon {
-        let svg = match state {
-            TrayState::UpToDate => art::TRAY_DONE,
-            TrayState::Syncing => art::TRAY_SYNCING,
-            TrayState::Error => art::TRAY_ERROR,
-            TrayState::Idle => art::TRAY_IDLE,
-        };
+        let svg = svg_for(state);
         // macOS draws template icons in the menu bar color, so black is correct.
         // Windows shows the icon as it is, so use the accent color.
         let (color, size) = if cfg!(target_os = "macos") {
@@ -145,7 +174,155 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+mod imp {
+    use super::*;
+    use crate::art;
+    use ksni::blocking::{Handle, TrayMethods};
+    use ksni::menu::StandardItem;
+    use ksni::{Icon, MenuItem, ToolTip};
+
+    pub struct Tray {
+        handle: Handle<Item>,
+        shown: Option<(TrayState, String)>,
+    }
+
+    /// The data of the tray item. ksni reads it on its own thread.
+    struct Item {
+        tx: Sender<TrayAction>,
+        ctx: egui::Context,
+        icon: Vec<Icon>,
+        status: String,
+    }
+
+    impl Item {
+        fn send(&self, action: TrayAction) {
+            let _ = self.tx.send(action);
+            self.ctx.request_repaint();
+        }
+    }
+
+    /// The icon in two sizes. The panel selects the size. Linux panels can
+    /// be light or dark, so use the accent color, as on Windows.
+    fn icon_for(state: TrayState) -> Vec<Icon> {
+        let svg = art::lucide(svg_for(state), "#8B7CF6");
+        [32, 64]
+            .into_iter()
+            .map(|size| {
+                let rgba = art::render(&svg, size);
+                let mut data = rgba.pixels;
+                // RGBA to ARGB32 in network byte order.
+                for pixel in data.as_chunks_mut::<4>().0 {
+                    pixel.rotate_right(1);
+                }
+                Icon {
+                    width: rgba.size as i32,
+                    height: rgba.size as i32,
+                    data,
+                }
+            })
+            .collect()
+    }
+
+    impl ksni::Tray for Item {
+        fn id(&self) -> String {
+            "io.github.fballiano.drivecraft".into()
+        }
+
+        fn title(&self) -> String {
+            "DriveCraft".into()
+        }
+
+        /// The left click: show the window, or hide it when it is in front.
+        fn activate(&mut self, _x: i32, _y: i32) {
+            self.send(TrayAction::Toggle);
+        }
+
+        fn icon_pixmap(&self) -> Vec<Icon> {
+            self.icon.clone()
+        }
+
+        fn tool_tip(&self) -> ToolTip {
+            ToolTip {
+                title: "DriveCraft".into(),
+                description: self.status.clone(),
+                ..Default::default()
+            }
+        }
+
+        fn menu(&self) -> Vec<MenuItem<Self>> {
+            let item = |label: &str, action: TrayAction| -> MenuItem<Self> {
+                StandardItem {
+                    label: label.into(),
+                    activate: Box::new(move |item: &mut Self| item.send(action)),
+                    ..Default::default()
+                }
+                .into()
+            };
+            vec![
+                item("Open DriveCraft", TrayAction::Open),
+                MenuItem::Separator,
+                StandardItem {
+                    label: self.status.clone(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+                item("Sync now", TrayAction::SyncNow),
+                item("Open DriveCraft folder", TrayAction::OpenDrive),
+                MenuItem::Separator,
+                item("Quit DriveCraft", TrayAction::Quit),
+            ]
+        }
+    }
+
+    pub fn create(ctx: egui::Context, tx: Sender<TrayAction>) -> Result<Tray, String> {
+        let item = Item {
+            tx,
+            ctx,
+            icon: icon_for(TrayState::Idle),
+            status: "Starting…".into(),
+        };
+        // A Flatpak cannot own the D-Bus name `org.kde.StatusNotifierItem-*`.
+        // Without a StatusNotifierWatcher, spawn returns an error.
+        let handle = item
+            .disable_dbus_name(drivecraft_core::flatpak::is_sandboxed())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(Tray {
+            handle,
+            shown: None,
+        })
+    }
+
+    impl Tray {
+        pub fn set_state(&mut self, state: TrayState, text: &str) {
+            if self
+                .shown
+                .as_ref()
+                .is_some_and(|(s, t)| *s == state && t == text)
+            {
+                return;
+            }
+            let icon = self
+                .shown
+                .as_ref()
+                .is_none_or(|(s, _)| *s != state)
+                .then(|| icon_for(state));
+            let status = text.to_string();
+            // ksni compares the properties after the update and tells the panel.
+            self.handle.update(move |item| {
+                if let Some(icon) = icon {
+                    item.icon = icon;
+                }
+                item.status = status;
+            });
+            self.shown = Some((state, text.to_string()));
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod imp {
     use super::*;
 

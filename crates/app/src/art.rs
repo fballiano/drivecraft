@@ -1,14 +1,14 @@
 //! Renders the bundled SVG art (app icon, tray icons) to RGBA pixels.
 
 pub const APP_ICON: &str = include_str!("../assets/app-icon.svg");
-// Linux has no tray icon yet (see tray.rs).
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+// The icons of the tray (tray.rs).
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub const TRAY_IDLE: &str = include_str!("../assets/icons/cloud.svg");
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub const TRAY_SYNCING: &str = include_str!("../assets/icons/cloud-sync.svg");
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub const TRAY_ERROR: &str = include_str!("../assets/icons/cloud-alert.svg");
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub const TRAY_DONE: &str = include_str!("../assets/icons/cloud-check.svg");
 
 /// Straight (not premultiplied) RGBA pixels of a square image.
@@ -44,7 +44,7 @@ fn pixmap(svg: &str, size: u32) -> resvg::tiny_skia::Pixmap {
 }
 
 /// A Lucide icon in one color. Lucide icons draw with `currentColor`.
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub fn lucide(svg: &str, color: &str) -> String {
     svg.replace("currentColor", color)
 }
