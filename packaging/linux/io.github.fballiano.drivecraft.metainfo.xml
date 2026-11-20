@@ -82,6 +82,15 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.11.0" date="2026-11-20">
+      <description>
+        <ul>
+          <li>Linux has a tray icon. It shows the sync status and has the same menu as on macOS and Windows. KDE Plasma, Cinnamon, XFCE, MATE, Budgie, LXQt, and Ubuntu show it. Plain GNOME shows it only with the AppIndicator extension.</li>
+          <li>Linux with X11: closing the window hides it in the tray, and after a start at login the window stays hidden.</li>
+          <li>Linux with Wayland: closing the window minimizes it, so the sync continues.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-11-19">
       <description>
         <ul>

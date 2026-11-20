@@ -1034,7 +1034,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "drivecraft"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "drivecraft-core",
  "eframe",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "drivecraft-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "base64",
